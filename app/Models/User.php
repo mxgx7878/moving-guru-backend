@@ -38,6 +38,11 @@ class User extends Authenticatable
 
     protected $hidden = ['password', 'remember_token'];
 
+    protected $attributes = [
+        'social_links' => '[]',
+        'gallery_photos' => '[]',
+    ];
+
     protected $casts = [
         'email_verified_at' => 'datetime',
         'disciplines' => 'array',

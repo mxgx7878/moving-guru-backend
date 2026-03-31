@@ -57,7 +57,7 @@ class AuthService
             'profile_picture'=> $profilePicture,
             'background_image'=> $backgroundImage,
             'gallery_photos'=> $galleryPhotos,
-            'social_links'=> $data['social_links'] ?? null,
+            'social_links'=> $data['social_links'] ?? [],
             'profile_views'=> $data['profile_views'] ?? 0,
         ]);
 

@@ -12,8 +12,12 @@ return new class extends Migration
     public function up(): void
     {
          Schema::table('users', function (Blueprint $table) {
-            $table->json('social_links')->nullable(); // Instagram, Facebook, etc.
-            $table->unsignedBigInteger('profile_views')->default(0); // Profile view count
+            if (!Schema::hasColumn('users', 'social_links')) {
+                $table->json('social_links')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'profile_views')) {
+                $table->unsignedBigInteger('profile_views')->default(0);
+            }
         });
     }
 

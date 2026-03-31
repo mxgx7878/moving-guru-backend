@@ -13,35 +13,29 @@ class ProfileService
             $data['password'] = Hash::make($data['password']);
         }
 
-        // array fields ko directly assign kar sakte ho
-        foreach (['disciplines','languages','openTo','gallery_photos','social_links'] as $field) {
-            if(isset($data[$field])) {
-                $data[$field] = $data[$field];
-            }
-        }
-         if(isset($data['profile_picture'])){
-            $path = $data['profile_picture']->store('profile_pictures','public');
-            $data['profile_picture'] = Storage::url($path);
+        // Handle profile picture upload
+        if (isset($data['profile_picture']) && $data['profile_picture'] instanceof \Illuminate\Http\UploadedFile) {
+            $path = $data['profile_picture']->store('profile_pictures', 'public');
+            $data['profile_picture'] = Storage::disk('public')->url($path);
         }
 
-        // background image
-        if(isset($data['background_image'])){
-            $path = $data['background_image']->store('background_images','public');
-            $data['background_image'] = Storage::url($path);
+        // Handle background image upload
+        if (isset($data['background_image']) && $data['background_image'] instanceof \Illuminate\Http\UploadedFile) {
+            $path = $data['background_image']->store('background_images', 'public');
+            $data['background_image'] = Storage::disk('public')->url($path);
         }
 
-        // gallery photos
-        if(isset($data['gallery_photos'])){
+        // Handle gallery photos upload
+        if (isset($data['gallery_photos']) && is_array($data['gallery_photos'])) {
             $gallery = [];
-
-            foreach($data['gallery_photos'] as $photo){
-                $path = $photo->store('gallery','public');
-                $gallery[] = Storage::url($path);
+            foreach ($data['gallery_photos'] as $photo) {
+                if ($photo instanceof \Illuminate\Http\UploadedFile) {
+                    $path = $photo->store('gallery', 'public');
+                    $gallery[] = Storage::disk('public')->url($path);
+                }
             }
-
             $data['gallery_photos'] = $gallery;
         }
-
 
         $user->update($data);
 

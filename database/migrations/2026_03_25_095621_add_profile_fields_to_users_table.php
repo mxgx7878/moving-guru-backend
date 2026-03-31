@@ -9,19 +9,45 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->integer('age')->nullable();
-            $table->string('pronouns')->nullable();
-            $table->string('studio')->nullable();
-            $table->string('location')->nullable();
-            $table->string('countryFrom')->nullable();
-            $table->string('travelingTo')->nullable();
-            $table->string('availability')->nullable();
-            $table->json('disciplines')->nullable();
-            $table->json('languages')->nullable();
-            $table->json('openTo')->nullable();
-            $table->string('profileStatus')->default('active');
-            $table->text('bio')->nullable();
-            $table->string('plan')->default('monthly');
+            if (!Schema::hasColumn('users', 'age')) {
+                $table->integer('age')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'pronouns')) {
+                $table->string('pronouns')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'studio')) {
+                $table->string('studio')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'location')) {
+                $table->string('location')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'countryFrom')) {
+                $table->string('countryFrom')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'travelingTo')) {
+                $table->string('travelingTo')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'availability')) {
+                $table->string('availability')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'disciplines')) {
+                $table->json('disciplines')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'languages')) {
+                $table->json('languages')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'openTo')) {
+                $table->json('openTo')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'profileStatus')) {
+                $table->string('profileStatus')->default('active');
+            }
+            if (!Schema::hasColumn('users', 'bio')) {
+                $table->text('bio')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'plan')) {
+                $table->string('plan')->default('monthly');
+            }
         });
     }
 

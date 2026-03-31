@@ -36,13 +36,12 @@ class AuthController extends Controller
             'profileStatus' => 'nullable|string',
             'bio' => 'nullable|string|max:500',
             'plan' => 'nullable|string',
-            'background_image' => 'nullable|string',
-            'profile_picture' => 'nullable|string',
+            'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'background_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
             'gallery_photos' => 'nullable|array',
+            'gallery_photos.*' => 'image|mimes:jpg,jpeg,png,webp|max:4096',
             'social_links' => 'nullable|array',
-            'social_links.*' => 'nullable|url',
             'profile_views' => 'nullable|integer',
-
         ]);
 
         $result = $this->authService->register($data);

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\PasswordService;
 use App\Http\Requests\ForgotPasswordRequest;
 use App\Http\Requests\ResetPasswordRequest;
+use App\Http\Requests\ChangePasswordRequest;
 use App\Helpers\ApiResponse;
 
 class PasswordResetController extends Controller
@@ -34,6 +35,18 @@ class PasswordResetController extends Controller
 
         return ApiResponse::success(
             'Password reset successful'
+        );
+    }
+
+    public function change(ChangePasswordRequest $request)
+    {
+        $this->passwordService->changePassword(
+            $request->user(),
+            $request->validated()
+        );
+
+        return ApiResponse::success(
+            'Password changed successfully'
         );
     }
 }

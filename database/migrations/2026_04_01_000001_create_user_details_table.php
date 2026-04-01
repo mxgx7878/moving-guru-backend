@@ -36,28 +36,6 @@ return new class extends Migration
         Schema::table('users', function (Blueprint $table) {
             $table->string('role')->default('client')->after('password');
         });
-
-        // Remove profile fields from users table
-        Schema::table('users', function (Blueprint $table) {
-            $columns = [
-                'age', 'pronouns', 'studio', 'location', 'countryFrom',
-                'travelingTo', 'availability', 'disciplines', 'languages',
-                'openTo', 'profileStatus', 'bio', 'plan', 'social_links',
-                'profile_views', 'profile_picture', 'background_image',
-                'gallery_photos',
-            ];
-
-            $existingColumns = [];
-            foreach ($columns as $column) {
-                if (Schema::hasColumn('users', $column)) {
-                    $existingColumns[] = $column;
-                }
-            }
-
-            if (!empty($existingColumns)) {
-                $table->dropColumn($existingColumns);
-            }
-        });
     }
 
     public function down(): void

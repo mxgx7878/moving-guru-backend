@@ -13,12 +13,8 @@ class UpdateProfileRequest extends FormRequest
 
     public function rules()
     {
-        $user = $this->user();
-
         return [
             'name' => 'sometimes|string|min:3',
-            'email' => 'sometimes|email|unique:users,email,' . $user->id,
-            'password' => 'sometimes|string|min:6|confirmed',
             'age' => 'nullable|integer',
             'pronouns' => 'nullable|string',
             'studio' => 'nullable|string',
@@ -32,12 +28,12 @@ class UpdateProfileRequest extends FormRequest
             'profileStatus' => 'nullable|string',
             'bio' => 'nullable|string|max:500',
             'plan' => 'nullable|string',
+            'lookingFor' => 'nullable|string',
             'social_links' => 'nullable|array',
-            'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
-            'background_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+            'background_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:10240',
             'gallery_photos' => 'nullable|array',
-            'gallery_photos.*' => 'image|mimes:jpg,jpeg,png,webp|max:4096',
+            'gallery_photos.*' => 'image|mimes:jpg,jpeg,png,webp|max:10240',
         ];
     }
-
 }

@@ -17,6 +17,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/refresh', [AuthController::class, 'refresh']);
     Route::patch('/profile', [ProfileController::class, 'update']);
+    Route::post('/password/change', [PasswordResetController::class, 'change']);
 
     // Profile Views
     Route::post('/profile/{userId}/view', [ProfileViewController::class, 'store']);

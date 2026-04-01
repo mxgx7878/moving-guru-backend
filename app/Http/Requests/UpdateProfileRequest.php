@@ -15,7 +15,6 @@ class UpdateProfileRequest extends FormRequest
     {
         return [
             'name' => 'sometimes|string|min:3',
-            'password' => 'sometimes|string|min:6|confirmed',
             'age' => 'nullable|integer',
             'pronouns' => 'nullable|string',
             'studio' => 'nullable|string',

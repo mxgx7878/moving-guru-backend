@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 
 class ProfileService
@@ -15,10 +14,6 @@ class ProfileService
 
         if (isset($data['name'])) {
             $userFields['name'] = $data['name'];
-        }
-
-        if (isset($data['password'])) {
-            $userFields['password'] = Hash::make($data['password']);
         }
 
         // Handle profile picture upload

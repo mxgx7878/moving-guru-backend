@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -16,69 +15,34 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-        'age',
-        'pronouns',
-        'studio',
-        'location',
-        'countryFrom',
-        'travelingTo',
-        'availability',
-        'disciplines',
-        'languages',
-        'openTo',
-        'profileStatus',
-        'bio',
-        'plan',
-        'background_image',
-        'profile_picture',
-        'gallery_photos',
-        'social_links',
-        'profile_views',
+        'role',
     ];
 
     protected $hidden = ['password', 'remember_token'];
 
-    protected $attributes = [
-        'social_links' => '[]',
-        'gallery_photos' => '[]',
-    ];
-
     protected $casts = [
         'email_verified_at' => 'datetime',
-        'disciplines' => 'array',
-        'languages' => 'array',
-        'openTo' => 'array',
-        'gallery_photos' => 'array',
-        'social_links' => 'array',
     ];
 
-    protected $appends = ['profile_picture_url', 'background_image_url', 'gallery_photos_urls'];
+    protected $with = ['detail'];
 
-    public function getProfilePictureUrlAttribute()
+    public function detail()
     {
-        return $this->profile_picture ? $this->toFullUrl($this->profile_picture) : null;
+        return $this->hasOne(UserDetail::class);
     }
 
-    public function getBackgroundImageUrlAttribute()
+    public function profileViews()
     {
-        return $this->background_image ? $this->toFullUrl($this->background_image) : null;
+        return $this->hasMany(ProfileView::class, 'viewed_user_id');
     }
 
-    public function getGalleryPhotosUrlsAttribute()
+    public function viewedProfiles()
     {
-        if (!$this->gallery_photos) {
-            return [];
-        }
-
-        return array_map(fn($photo) => $this->toFullUrl($photo), $this->gallery_photos);
+        return $this->hasMany(ProfileView::class, 'viewer_id');
     }
 
-    private function toFullUrl($path)
+    public function isAdmin()
     {
-        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
-            return $path;
-        }
-
-        return rtrim(config('app.url'), '/') . '/' . ltrim($path, '/');
+        return $this->role === 'admin';
     }
 }

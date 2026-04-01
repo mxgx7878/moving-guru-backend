@@ -26,9 +26,8 @@ class AuthService
         }
 
         // Handle gallery photos upload
-        $galleryPhotos = null;
+        $galleryPhotos = [];
         if (isset($data['gallery_photos']) && is_array($data['gallery_photos'])) {
-            $galleryPhotos = [];
             foreach ($data['gallery_photos'] as $photo) {
                 if ($photo instanceof \Illuminate\Http\UploadedFile) {
                     $path = $photo->store('gallery', 'public');
@@ -37,29 +36,40 @@ class AuthService
             }
         }
 
+        // Filter null values from social_links
+        $socialLinks = [];
+        if (isset($data['social_links']) && is_array($data['social_links'])) {
+            $socialLinks = array_values(array_filter($data['social_links'], fn($link) => !is_null($link)));
+        }
+
         $user = User::create([
-            'name'=> $data['name'],
-            'email'=> $data['email'],
-            'password'=> Hash::make($data['password']),
-            'age'=> $data['age'] ?? null,
-            'pronouns'=> $data['pronouns'] ?? null,
-            'studio'=> $data['studio'] ?? null,
-            'location'=> $data['location'] ?? null,
-            'countryFrom'=> $data['countryFrom'] ?? null,
-            'travelingTo'=> $data['travelingTo'] ?? null,
-            'availability'=> $data['availability'] ?? null,
-            'disciplines'=> $data['disciplines'] ?? null,
-            'languages'=> $data['languages'] ?? null,
-            'openTo'=> $data['openTo'] ?? null,
-            'profileStatus'=> $data['profileStatus'] ?? 'active',
-            'bio'=> $data['bio'] ?? null,
-            'plan'=> $data['plan'] ?? 'monthly',
-            'profile_picture'=> $profilePicture,
-            'background_image'=> $backgroundImage,
-            'gallery_photos'=> $galleryPhotos,
-            'social_links'=> $data['social_links'] ?? [],
-            'profile_views'=> $data['profile_views'] ?? 0,
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'password' => Hash::make($data['password']),
         ]);
+
+        $user->detail()->create([
+            'age' => $data['age'] ?? null,
+            'pronouns' => $data['pronouns'] ?? null,
+            'studio' => $data['studio'] ?? null,
+            'location' => $data['location'] ?? null,
+            'countryFrom' => $data['countryFrom'] ?? null,
+            'travelingTo' => $data['travelingTo'] ?? null,
+            'availability' => $data['availability'] ?? null,
+            'disciplines' => $data['disciplines'] ?? null,
+            'languages' => $data['languages'] ?? null,
+            'openTo' => $data['openTo'] ?? null,
+            'profileStatus' => $data['profileStatus'] ?? 'active',
+            'bio' => $data['bio'] ?? null,
+            'plan' => $data['plan'] ?? 'monthly',
+            'lookingFor' => $data['lookingFor'] ?? null,
+            'profile_picture' => $profilePicture,
+            'background_image' => $backgroundImage,
+            'gallery_photos' => $galleryPhotos,
+            'social_links' => $socialLinks,
+        ]);
+
+        $user->load('detail');
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -73,8 +83,8 @@ class AuthService
     public function login($data)
     {
         if (!Auth::attempt([
-            'email'=>$data['email'],
-            'password'=>$data['password']
+            'email' => $data['email'],
+            'password' => $data['password']
         ])) {
             return false;
         }
@@ -84,9 +94,9 @@ class AuthService
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return [
-            'user'=>$user,
-            'access_token'=>$token,
-            'token_type'=>'Bearer'
+            'user' => $user,
+            'access_token' => $token,
+            'token_type' => 'Bearer'
         ];
     }
 

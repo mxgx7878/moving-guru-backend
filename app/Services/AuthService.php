@@ -11,18 +11,22 @@ class AuthService
 {
     public function register($data)
     {
+        $generateUrl = function ($path) {
+            return env('APP_URL') . '/storage/app/public/' . $path;
+        };
+
         // Handle profile picture upload
         $profilePicture = null;
         if (isset($data['profile_picture']) && $data['profile_picture'] instanceof \Illuminate\Http\UploadedFile) {
             $path = $data['profile_picture']->store('profile_pictures', 'public');
-            $profilePicture = Storage::disk('public')->url($path);
+            $profilePicture = $generateUrl($path);
         }
 
         // Handle background image upload
         $backgroundImage = null;
         if (isset($data['background_image']) && $data['background_image'] instanceof \Illuminate\Http\UploadedFile) {
             $path = $data['background_image']->store('background_images', 'public');
-            $backgroundImage = Storage::disk('public')->url($path);
+            $backgroundImage = $generateUrl($path);
         }
 
         // Handle gallery photos upload
@@ -31,7 +35,7 @@ class AuthService
             foreach ($data['gallery_photos'] as $photo) {
                 if ($photo instanceof \Illuminate\Http\UploadedFile) {
                     $path = $photo->store('gallery', 'public');
-                    $galleryPhotos[] = Storage::disk('public')->url($path);
+                    $galleryPhotos[] = $generateUrl($path);
                 }
             }
         }
@@ -82,10 +86,12 @@ class AuthService
 
     public function login($data)
     {
-        if (!Auth::attempt([
-            'email' => $data['email'],
-            'password' => $data['password']
-        ])) {
+        if (
+            !Auth::attempt([
+                'email' => $data['email'],
+                'password' => $data['password']
+            ])
+        ) {
             return false;
         }
 

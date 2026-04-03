@@ -3,106 +3,106 @@
 namespace App\Services;
 
 use App\Models\User;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Hash;
 
 class AuthService
 {
-    public function register($data)
+    public function register($data, $request = null)
     {
-        $generateUrl = function ($path) {
-            return env('APP_URL') . '/storage/app/public/' . $path;
-        };
+        $generateUrl = fn($path) => env('APP_URL') . '/storage/app/public/' . $path;
 
-        // Handle profile picture upload
-        $profilePicture = null;
-        if (isset($data['profile_picture']) && $data['profile_picture'] instanceof \Illuminate\Http\UploadedFile) {
-            $path = $data['profile_picture']->store('profile_pictures', 'public');
+        // ── File uploads ───────────────────────────────────────
+        $profilePicture  = null;
+        $backgroundImage = null;
+        $galleryPhotos   = [];
+
+        if ($request?->hasFile('profile_picture')) {
+            $path = $request->file('profile_picture')->store('profile_pictures', 'public');
             $profilePicture = $generateUrl($path);
         }
-
-        // Handle background image upload
-        $backgroundImage = null;
-        if (isset($data['background_image']) && $data['background_image'] instanceof \Illuminate\Http\UploadedFile) {
-            $path = $data['background_image']->store('background_images', 'public');
+        if ($request?->hasFile('background_image')) {
+            $path = $request->file('background_image')->store('background_images', 'public');
             $backgroundImage = $generateUrl($path);
         }
-
-        // Handle gallery photos upload
-        $galleryPhotos = [];
-        if (isset($data['gallery_photos']) && is_array($data['gallery_photos'])) {
-            foreach ($data['gallery_photos'] as $photo) {
-                if ($photo instanceof \Illuminate\Http\UploadedFile) {
-                    $path = $photo->store('gallery', 'public');
-                    $galleryPhotos[] = $generateUrl($path);
-                }
+        if ($request?->hasFile('gallery_photos')) {
+            foreach ($request->file('gallery_photos') as $photo) {
+                $galleryPhotos[] = $generateUrl($photo->store('gallery', 'public'));
             }
         }
 
-        // Filter null values from social_links
-        $socialLinks = [];
-        if (isset($data['social_links']) && is_array($data['social_links'])) {
-            $socialLinks = array_values(array_filter($data['social_links'], fn($link) => !is_null($link)));
+        // ── Create user ────────────────────────────────────────
+        $user = User::create([
+            'name'     => $data['name'],
+            'email'    => $data['email'],
+            'password' => Hash::make($data['password']),
+            'role'     => $data['role'] ?? 'instructor',
+        ]);
+
+        // ── Build detail — all keys already camelCase ──────────
+        $role       = $data['role'] ?? 'instructor';
+        $detailData = [
+            'bio'             => $data['bio']          ?? null,
+            'profileStatus'   => $data['profileStatus'] ?? 'active',
+            'plan'            => $data['plan']          ?? 'monthly',
+            'disciplines'     => $data['disciplines']   ?? null,
+            'openTo'          => $data['openTo']        ?? null,
+            'location'        => $data['location']      ?? null,
+            'social_links'    => $data['social_links']  ?? [],
+            'profile_picture' => $profilePicture,
+            'background_image'=> $backgroundImage,
+            'gallery_photos'  => $galleryPhotos,
+        ];
+
+        if ($role === 'instructor') {
+            $detailData += [
+                'age'           => $data['age']           ?? null,
+                'pronouns'      => $data['pronouns']      ?? null,
+                'studio'        => $data['studio']        ?? null,
+                'countryFrom'   => $data['countryFrom']   ?? null,
+                'travelingTo'   => $data['travelingTo']   ?? null,
+                'availability'  => $data['availability']  ?? null,
+                'availableFrom' => $data['availableFrom'] ?? null,
+                'availableTo'   => $data['availableTo']   ?? null,
+                'flexibleDates' => $data['flexibleDates'] ?? false,
+                'languages'     => $data['languages']     ?? null,
+                'lookingFor'    => $data['lookingFor']    ?? null,
+            ];
         }
 
-        $user = User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => Hash::make($data['password']),
-        ]);
+        if ($role === 'studio') {
+            $detailData += [
+                'studioName'  => $data['studioName']  ?? null,
+                'contactName' => $data['contactName'] ?? null,
+                'country'     => $data['country']     ?? null,
+                'phone'       => $data['phone']       ?? null,
+                'website'     => $data['website']     ?? null,
+                'studioSize'  => $data['studioSize']  ?? null,
+            ];
+        }
 
-        $user->detail()->create([
-            'age' => $data['age'] ?? null,
-            'pronouns' => $data['pronouns'] ?? null,
-            'studio' => $data['studio'] ?? null,
-            'location' => $data['location'] ?? null,
-            'countryFrom' => $data['countryFrom'] ?? null,
-            'travelingTo' => $data['travelingTo'] ?? null,
-            'availability' => $data['availability'] ?? null,
-            'disciplines' => $data['disciplines'] ?? null,
-            'languages' => $data['languages'] ?? null,
-            'openTo' => $data['openTo'] ?? null,
-            'profileStatus' => $data['profileStatus'] ?? 'active',
-            'bio' => $data['bio'] ?? null,
-            'plan' => $data['plan'] ?? 'monthly',
-            'lookingFor' => $data['lookingFor'] ?? null,
-            'profile_picture' => $profilePicture,
-            'background_image' => $backgroundImage,
-            'gallery_photos' => $galleryPhotos,
-            'social_links' => $socialLinks,
-        ]);
-
+        $user->detail()->create($detailData);
         $user->load('detail');
 
-        $token = $user->createToken('auth_token')->plainTextToken;
-
         return [
-            'user' => $user,
-            'access_token' => $token,
-            'token_type' => 'Bearer'
+            'user'         => $user,
+            'access_token' => $user->createToken('auth_token')->plainTextToken,
+            'token_type'   => 'Bearer',
         ];
     }
 
     public function login($data)
     {
-        if (
-            !Auth::attempt([
-                'email' => $data['email'],
-                'password' => $data['password']
-            ])
-        ) {
+        if (!Auth::attempt(['email' => $data['email'], 'password' => $data['password']])) {
             return false;
         }
 
-        $user = Auth::user();
-
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $user = Auth::user()->load('detail');
 
         return [
-            'user' => $user,
-            'access_token' => $token,
-            'token_type' => 'Bearer'
+            'user'         => $user,
+            'access_token' => $user->createToken('auth_token')->plainTextToken,
+            'token_type'   => 'Bearer',
         ];
     }
 
@@ -114,7 +114,6 @@ class AuthService
     public function refreshToken($user)
     {
         $user->currentAccessToken()->delete();
-
         return $user->createToken('auth_token')->plainTextToken;
     }
 }

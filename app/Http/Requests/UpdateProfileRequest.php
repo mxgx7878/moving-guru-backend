@@ -66,6 +66,13 @@ class UpdateProfileRequest extends FormRequest
             'website'          => 'nullable|string',
             'studioSize'       => 'nullable|string',
             'instagram'        => 'nullable|string',
+            'hiring_role_description'    => 'nullable|string|max:5000',
+            'hiring_position_type'       => 'nullable|in:permanent,temporary,substitute,weekend_cover,casual',
+            'hiring_start_date'          => 'nullable|date',
+            'hiring_duration'            => 'nullable|string|max:100',
+            'hiring_compensation'        => 'nullable|string|max:255',
+            'hiring_qualification_level' => 'nullable|in:none,intermediate,diploma,bachelors,masters,doctorate,cert_200hr,cert_500hr,cert_comprehensive,cert_specialized',
+        
         ];
     }
 }

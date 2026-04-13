@@ -53,6 +53,13 @@ class ProfileService
             // Studio
             'studioName', 'contactName', 'country', 'phone',
             'website', 'studioSize', 'instagram',
+
+            'hiring_role_description',
+            'hiring_position_type',
+            'hiring_start_date',
+            'hiring_duration',
+            'hiring_compensation',
+            'hiring_qualification_level',
         ];
 
         foreach ($detailKeys as $key) {

@@ -8,6 +8,7 @@ use App\Http\Controllers\API\PasswordResetController;
 use App\Http\Controllers\API\ProfileViewController;
 use App\Http\Controllers\API\GrowPostController;
 use App\Http\Controllers\API\JobListingController;
+use App\Http\Controllers\API\InstructorController;
 
 use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsStudio;
@@ -20,6 +21,8 @@ Route::get('grow-posts',       [GrowPostController::class, 'index']);
 Route::get('grow-posts/{id}',  [GrowPostController::class, 'show'])->whereNumber('id');
 Route::get('jobs',            [JobListingController::class, 'index']);
 Route::get('jobs/{id}',       [JobListingController::class, 'show'])->whereNumber('id');
+Route::get('instructors',        [InstructorController::class, 'index']);
+Route::get('instructors/{id}',   [InstructorController::class, 'show'])->whereNumber('id');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -43,6 +46,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post  ('jobs/{id}/apply',   [JobListingController::class, 'apply'])->whereNumber('id');
     Route::get   ('applications/mine', [JobListingController::class, 'myApplications']);
     Route::delete('applications/{id}', [JobListingController::class, 'withdraw'])->whereNumber('id');
+
+      Route::get('instructors/saved',  [InstructorController::class, 'saved'])
+         ->middleware(IsStudio::class);
+
 });
 
 Route::middleware(['auth:sanctum', IsStudio::class])->group(function () {
@@ -51,6 +58,8 @@ Route::middleware(['auth:sanctum', IsStudio::class])->group(function () {
     Route::delete('jobs/{id}',               [JobListingController::class, 'destroy'])->whereNumber('id');
     Route::get   ('jobs/{id}/applicants',    [JobListingController::class, 'applicants'])->whereNumber('id');
     Route::patch ('applications/{id}/status',[JobListingController::class, 'updateApplicationStatus'])->whereNumber('id');
+    Route::post('instructors/save',   [InstructorController::class, 'save']);
+    Route::post('instructors/unsave', [InstructorController::class, 'unsave']);
 });
 
 Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(function () {

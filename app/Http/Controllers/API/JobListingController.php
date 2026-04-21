@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Sanctum\PersonalAccessToken;
+use Illuminate\Support\Facades\DB;
 
 /**
  * JobListingController
@@ -84,12 +85,20 @@ class JobListingController extends Controller
     /**
      * Decorate an application with `can_reapply_at`. Mutates and returns.
      */
-    private function decorateApplication(?JobApplication $app): ?JobApplication
+      private function decorateApplication(?JobApplication $app): ?JobApplication
     {
         if (!$app) return null;
         $unlock = $this->computeReapplyUnlock($app);
         $app->can_reapply_at = $unlock?->toIso8601String();
         return $app;
+    }
+
+
+    private function decorateCapacity(JobListing $job): JobListing
+    {
+        $job->positions_open = $job->positionsOpen();
+        $job->is_full        = $job->isFull();
+        return $job;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -135,6 +144,8 @@ class JobListingController extends Controller
         $paginator = $query->paginate($perPage);
 
         $paginator->getCollection()->transform(function ($job) use ($myAppsByJob) {
+
+            $this->decorateCapacity($job);
             $myApp = $myAppsByJob->get((int) $job->id);
             $job->application = $myApp ? $this->decorateApplication($myApp) : null;
             // Keep has_applied for backward-compat — true only if the
@@ -165,6 +176,8 @@ class JobListingController extends Controller
             }])
             ->findOrFail($id);
 
+            $this->decorateCapacity($job);
+
         $user = $this->resolveOptionalUser($request);
         if ($user && $user->role === 'instructor') {
             $myApp = JobApplication::where('job_listing_id', $job->id)
@@ -190,6 +203,8 @@ class JobListingController extends Controller
             ->where('studio_id', Auth::id())
             ->latest()
             ->get();
+
+            $jobs->transform(fn ($j) => $this->decorateCapacity($j));
 
         return ApiResponse::success('Your listings fetched', [
             'jobs' => $jobs,
@@ -227,6 +242,7 @@ class JobListingController extends Controller
         $job = JobListing::create($data);
         $job->loadMissing('studio');
         $job->applicants_count = 0;
+        $this->decorateCapacity($job);
 
         return ApiResponse::success('Listing created successfully', [
             'job' => $job,
@@ -251,17 +267,30 @@ class JobListingController extends Controller
             'requirements'        => 'sometimes|nullable|string',
             'qualification_level' => 'sometimes|in:none,intermediate,diploma,bachelors,masters,doctorate,cert_200hr,cert_500hr,cert_comprehensive,cert_specialized',
             'is_active'           => 'sometimes|boolean',
+            'vacancies'           => 'sometimes|integer|min:1|max:999',
         ]);
 
         if ($validator->fails()) {
             return ApiResponse::error('Validation failed', $validator->errors(), 422);
         }
 
-        $job->update($validator->validated());
+         $data = $validator->validated();
+ 
+        // Guard: you can't shrink vacancies below what's already been filled.
+        if (isset($data['vacancies']) && $data['vacancies'] < $job->positions_filled) {
+            return ApiResponse::error(
+                "Vacancies can't be lower than positions already filled ({$job->positions_filled}).",
+                [],
+                422
+            );
+        }
+ 
+        $job->update($data);
         $job->loadMissing('studio');
         $job->applicants_count = $job->applications()
             ->where('status', '!=', 'withdrawn')->count();
-
+        $this->decorateCapacity($job);
+ 
         return ApiResponse::success('Listing updated', ['job' => $job]);
     }
 
@@ -411,6 +440,8 @@ class JobListingController extends Controller
         JobApplication::where('job_listing_id', $job->id)
             ->where('status', 'pending')
             ->update(['status' => 'viewed', 'viewed_at' => now()]);
+            
+        $this->decorateCapacity($job);
 
         return ApiResponse::success('Applicants fetched', [
             'job'        => $job,
@@ -430,37 +461,73 @@ class JobListingController extends Controller
         $validator = Validator::make($request->all(), [
             'status' => 'required|in:viewed,accepted,rejected',
         ]);
-
+ 
         if ($validator->fails()) {
             return ApiResponse::error('Validation failed', $validator->errors(), 422);
         }
-
+ 
         $app = JobApplication::with('jobListing')->findOrFail($id);
-
+ 
         if (!$app->jobListing || $app->jobListing->studio_id !== Auth::id()) {
             return ApiResponse::error('Forbidden.', [], 403);
         }
-
+ 
         $newStatus = $request->status;
-        $update = [
-            'status'    => $newStatus,
-            'viewed_at' => $app->viewed_at ?? now(),
-        ];
-
-        if ($newStatus === 'rejected' && $app->status !== 'rejected') {
-            // Fresh rejection — stamp the moment so the lock starts now
-            $update['rejected_at'] = now();
-        } elseif ($newStatus !== 'rejected' && $app->status === 'rejected') {
-            // Studio changed their mind — clear the lock
-            $update['rejected_at'] = null;
+        $oldStatus = $app->status;
+        $job       = $app->jobListing;
+ 
+        // Short-circuit: no state change, no DB writes.
+        if ($newStatus === $oldStatus) {
+            return ApiResponse::success('No change', [
+                'application' => $this->decorateApplication($app),
+            ]);
         }
-
-        $app->update($update);
-
-        $fresh = $this->decorateApplication($app->fresh(['instructor', 'jobListing']));
-
+ 
+        // Guard: can't accept more applicants than remaining vacancies.
+        if ($newStatus === 'accepted' && $oldStatus !== 'accepted') {
+            if ($job->isFull()) {
+                return ApiResponse::error(
+                    'All positions have been filled for this listing.',
+                    [],
+                    409
+                );
+            }
+        }
+ 
+        DB::transaction(function () use (&$app, $job, $newStatus, $oldStatus) {
+            // 1) Update the application row
+            $update = ['status' => $newStatus];
+            $update['viewed_at']   = $app->viewed_at ?? now();
+            $update['rejected_at'] = $newStatus === 'rejected' ? now() : null;
+            $app->update($update);
+ 
+            // 2) Adjust the listing's filled counter based on the transition
+            $wasAccepted = $oldStatus === 'accepted';
+            $nowAccepted = $newStatus === 'accepted';
+ 
+            if (!$wasAccepted && $nowAccepted) {
+                $job->increment('positions_filled');
+            } elseif ($wasAccepted && !$nowAccepted) {
+                // Un-accepting (e.g. studio clicks decline after a mis-click).
+                $job->decrement('positions_filled');
+                // If the listing was auto-closed because it was full, reopen it
+                // — otherwise respect whatever state the studio set manually.
+                if (!$job->is_active && $job->positions_filled < $job->vacancies) {
+                    $job->update(['is_active' => true]);
+                }
+            }
+ 
+            // 3) Auto-close when full
+            $job->refresh();
+            if ($job->is_active && $job->isFull()) {
+                $job->update(['is_active' => false]);
+            }
+        });
+ 
+        $app->refresh()->loadMissing('instructor');
+ 
         return ApiResponse::success('Application updated', [
-            'application' => $fresh,
+            'application' => $this->decorateApplication($app),
         ]);
     }
 

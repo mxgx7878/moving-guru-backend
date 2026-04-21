@@ -24,12 +24,16 @@ class JobListing extends Model
         'requirements',
         'qualification_level',
         'is_active',
+         'vacancies',
+        'positions_filled',
     ];
 
     protected $casts = [
         'disciplines' => 'array',
         'is_active'   => 'boolean',
         'start_date'  => 'date:Y-m-d',
+        'vacancies' => 'integer',
+        'positions_filled' => 'integer',
     ];
 
     // ── Relationships ───────────────────────────────────────────
@@ -77,5 +81,16 @@ class JobListing extends Model
         return $discipline
             ? $query->whereJsonContains('disciplines', $discipline)
             : $query;
+    }
+
+     public function isFull(): bool
+    {
+        return $this->positions_filled >= $this->vacancies;
+    }
+ 
+    /** Positions still open for hire. Never negative. */
+    public function positionsOpen(): int
+    {
+        return max(0, $this->vacancies - $this->positions_filled);
     }
 }

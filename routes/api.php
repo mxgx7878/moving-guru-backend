@@ -9,6 +9,7 @@ use App\Http\Controllers\API\ProfileViewController;
 use App\Http\Controllers\API\GrowPostController;
 use App\Http\Controllers\API\JobListingController;
 use App\Http\Controllers\API\InstructorController;
+use App\Http\Controllers\API\ReviewController;
 
 use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsStudio;
@@ -23,6 +24,7 @@ Route::get('jobs',            [JobListingController::class, 'index']);
 Route::get('jobs/{id}',       [JobListingController::class, 'show'])->whereNumber('id');
 Route::get('instructors',        [InstructorController::class, 'index']);
 Route::get('instructors/{id}',   [InstructorController::class, 'show'])->whereNumber('id');
+Route::get('users/{id}/reviews', [ReviewController::class, 'forUser'])->whereNumber('id');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -47,8 +49,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get   ('applications/mine', [JobListingController::class, 'myApplications']);
     Route::delete('applications/{id}', [JobListingController::class, 'withdraw'])->whereNumber('id');
 
-      Route::get('instructors/saved',  [InstructorController::class, 'saved'])
+    Route::get('instructors/saved',  [InstructorController::class, 'saved'])
          ->middleware(IsStudio::class);
+
+
+    Route::post  ('reviews',           [ReviewController::class, 'store']);
+    Route::delete('reviews/{id}',      [ReviewController::class, 'destroy'])->whereNumber('id');
+    Route::get   ('reviews/mine',      [ReviewController::class, 'mine']);
+    Route::get   ('reviews/eligible',  [ReviewController::class, 'eligible']);
 
 });
 

@@ -109,30 +109,54 @@ class JobListingController extends Controller
      * GET /api/jobs
      * Active listings for instructors to browse.
      */
-    public function index(Request $request)
+public function index(Request $request)
     {
+        $user    = $this->resolveOptionalUser($request);
+        $isAdmin = $user && $user->role === 'admin';
+
         $query = JobListing::with('studio')
             ->withCount(['applications as applicants_count' => function ($q) {
                 $q->where('status', '!=', 'withdrawn');
             }])
-            ->active()
             ->ofType($request->get('type'))
             ->inLocation($request->get('location'))
             ->hasDiscipline($request->get('discipline'))
             ->latest();
 
-        if ($search = trim((string) $request->get('search', ''))) {
-            $query->where(function ($q) use ($search) {
+        // Public + instructor view is scoped to active listings.
+        // Admin sees everything and can filter explicitly.
+        if (!$isAdmin) {
+            $query->active();
+        } elseif ($request->filled('status')) {
+            $status = $request->get('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            } elseif ($status === 'full') {
+                $query->whereRaw('positions_filled >= COALESCE(vacancies, 1)');
+            }
+        }
+
+        // Free-text search — admin also searches across studio name/email
+        if ($search = trim((string) $request->get('search', $request->get('q', '')))) {
+            $query->where(function ($q) use ($search, $isAdmin) {
                 $q->where('title',       'like', "%{$search}%")
                   ->orWhere('description', 'like', "%{$search}%")
                   ->orWhere('location',    'like', "%{$search}%");
+
+                if ($isAdmin) {
+                    $q->orWhereHas('studio', function ($sq) use ($search) {
+                        $sq->where('name',  'like', "%{$search}%")
+                           ->orWhere('email', 'like', "%{$search}%");
+                        // If users table has studio_name column, uncomment:
+                        // ->orWhere('studio_name', 'like', "%{$search}%")
+                    });
+                }
             });
         }
 
-        // For instructors: attach their existing application (if any) per job.
-        // This gives the UI the full picture (status + reapply lock) not just
-        // a boolean has_applied.
-        $user = $this->resolveOptionalUser($request);
+        // Instructor-only: attach own applications so Apply button state works.
         $myAppsByJob = collect();
         if ($user && $user->role === 'instructor') {
             $myAppsByJob = JobApplication::where('instructor_id', $user->id)
@@ -144,12 +168,9 @@ class JobListingController extends Controller
         $paginator = $query->paginate($perPage);
 
         $paginator->getCollection()->transform(function ($job) use ($myAppsByJob) {
-
             $this->decorateCapacity($job);
             $myApp = $myAppsByJob->get((int) $job->id);
             $job->application = $myApp ? $this->decorateApplication($myApp) : null;
-            // Keep has_applied for backward-compat — true only if the
-            // application still counts as "active" (not withdrawn).
             $job->has_applied = $myApp && $myApp->status !== 'withdrawn';
             return $job;
         });
@@ -426,9 +447,17 @@ class JobListingController extends Controller
     //  STUDIO — REVIEW APPLICANTS
     // ═══════════════════════════════════════════════════════════
 
-    public function applicants(Request $request, $id)
+ public function applicants(Request $request, $id)
     {
-        $job = JobListing::where('studio_id', Auth::id())->findOrFail($id);
+        $user = $request->user();
+        $job  = JobListing::with('studio')->findOrFail($id);
+
+        // Authorization — admin OR the owning studio, nobody else.
+        $isOwner = $user->role === 'studio' && $job->studio_id === $user->id;
+        $isAdmin = $user->role === 'admin';
+        if (!$isOwner && !$isAdmin) {
+            return ApiResponse::error('Forbidden.', [], 403);
+        }
 
         $apps = JobApplication::with('instructor')
             ->where('job_listing_id', $job->id)
@@ -436,11 +465,14 @@ class JobListingController extends Controller
             ->latest()
             ->get();
 
-        // Auto-mark pending → viewed (but don't clobber other states).
-        JobApplication::where('job_listing_id', $job->id)
-            ->where('status', 'pending')
-            ->update(['status' => 'viewed', 'viewed_at' => now()]);
-            
+        // Auto-mark pending → viewed ONLY when the studio owner is looking.
+        // Admin moderation shouldn't mutate the studio's view state.
+        if ($isOwner) {
+            JobApplication::where('job_listing_id', $job->id)
+                ->where('status', 'pending')
+                ->update(['status' => 'viewed', 'viewed_at' => now()]);
+        }
+
         $this->decorateCapacity($job);
 
         return ApiResponse::success('Applicants fetched', [
@@ -529,6 +561,49 @@ class JobListingController extends Controller
         return ApiResponse::success('Application updated', [
             'application' => $this->decorateApplication($app),
         ]);
+    }
+
+
+      public function adminActivate($id)
+    {
+        $job = JobListing::findOrFail($id);
+
+        if ($job->isFull()) {
+            return ApiResponse::error(
+                'Cannot activate — all vacancies are already filled.',
+                [], 422
+            );
+        }
+
+        $job->update(['is_active' => true]);
+        $job->loadMissing('studio');
+        $this->decorateCapacity($job);
+
+        return ApiResponse::success('Listing activated', ['job' => $job]);
+    }
+
+    /**
+     * PATCH /api/admin/jobs/{id}/deactivate
+     */
+    public function adminDeactivate($id)
+    {
+        $job = JobListing::findOrFail($id);
+        $job->update(['is_active' => false]);
+        $job->loadMissing('studio');
+        $this->decorateCapacity($job);
+
+        return ApiResponse::success('Listing deactivated', ['job' => $job]);
+    }
+
+    /**
+     * DELETE /api/admin/jobs/{id}
+     */
+    public function adminDestroy($id)
+    {
+        $job = JobListing::findOrFail($id);
+        $job->delete();
+
+        return ApiResponse::success('Listing deleted', ['id' => (int) $id]);
     }
 
 }

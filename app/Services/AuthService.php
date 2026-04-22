@@ -97,8 +97,29 @@ class AuthService
             return false;
         }
 
-        $user = Auth::user()->load('detail');
+        $user = Auth::user();
 
+        if ($user->status === 'suspended' || $user->is_active === false) {
+            return response()->json([
+                'success' => false,
+                'message' => $user->suspension_reason
+                    ? "Account suspended: {$user->suspension_reason}"
+                    : 'Your account has been suspended. Please contact support.',
+            ], 403);
+        }
+
+        // Rejected accounts can also be blocked
+        if ($user->status === 'rejected') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your registration was not approved.',
+            ], 403);
+        }
+
+        $user->update(['last_login_at' => now()]);
+        $user->load('detail');
+
+        
         return [
             'user'         => $user,
             'access_token' => $user->createToken('auth_token')->plainTextToken,

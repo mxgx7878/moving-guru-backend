@@ -136,8 +136,7 @@ class GrowPostController extends Controller
             'tags.*'       => 'string',
             'external_url' => 'nullable|url',
             'color'        => 'nullable|string|max:20',
-            'images'       => 'nullable|array',
-            'images.*'     => 'nullable|string',  // URLs or base64
+           'cover_image'  => 'nullable|file|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
             'expiry_date'  => 'nullable|date',
         ]);
 
@@ -150,22 +149,11 @@ class GrowPostController extends Controller
         }
 
         // Handle image uploads (base64 → store file)
-        $imageUrls = [];
-        if ($request->filled('images')) {
-            foreach ($request->images as $img) {
-                if (str_starts_with($img, 'data:image')) {
-                    // Decode base64 image
-                    $data     = explode(',', $img);
-                    $decoded  = base64_decode($data[1]);
-                    $ext      = 'jpg';
-                    $filename = 'grow_posts/' . uniqid() . '.' . $ext;
-                    Storage::disk('public')->put($filename, $decoded);
-                    $imageUrls[] = Storage::url($filename);
-                } else {
-                    $imageUrls[] = $img; // Already a URL
-                }
-            }
-        }
+      $imageUrls = [];
+if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()) {
+    $path = $request->file('cover_image')->store('grow_posts', 'public');
+    $imageUrls[] = Storage::url($path);
+}
 
         $post = GrowPost::create([
             'user_id'      => Auth::id(),
@@ -217,6 +205,7 @@ class GrowPostController extends Controller
             'tags'         => 'nullable|array',
             'external_url' => 'nullable|url',
             'expiry_date'  => 'nullable|date',
+    'cover_image'  => 'nullable|file|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -225,6 +214,31 @@ class GrowPostController extends Controller
                 'errors'  => $validator->errors(),
             ], 422);
         }
+
+$newImages = null; // null = don't touch
+if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()) {
+    // Delete the previous file from disk if we can figure out its path.
+    $existing = $post->images[0] ?? null;
+    if ($existing) {
+        // Strip the /storage/ prefix to get the actual file path on the disk.
+        $oldRelative = ltrim(str_replace('/storage/', '', parse_url($existing, PHP_URL_PATH) ?? ''), '/');
+        if ($oldRelative && Storage::disk('public')->exists($oldRelative)) {
+            Storage::disk('public')->delete($oldRelative);
+        }
+    }
+    $path = $request->file('cover_image')->store('grow_posts', 'public');
+    $newImages = [Storage::url($path)];
+} elseif ($request->boolean('remove_cover_image')) {
+    // Explicit wipe
+    $existing = $post->images[0] ?? null;
+    if ($existing) {
+        $oldRelative = ltrim(str_replace('/storage/', '', parse_url($existing, PHP_URL_PATH) ?? ''), '/');
+        if ($oldRelative && Storage::disk('public')->exists($oldRelative)) {
+            Storage::disk('public')->delete($oldRelative);
+        }
+    }
+    $newImages = [];
+}
 
         $post->update(array_filter([
             'title'        => $request->title,
@@ -240,12 +254,12 @@ class GrowPostController extends Controller
             'tags'         => $request->tags,
             'external_url' => $request->external_url,
             'expires_at'   => $request->expiry_date,
+            'images'       => $newImages, // only update if new images provided
         ], fn($v) => $v !== null));
 
+
         // Re-submit for approval if content changed significantly
-        if ($post->status === 'approved') {
-            $post->update(['status' => 'approved']); // keep approved on minor edits
-        }
+       $post->update(['status' => 'pending', 'rejection_reason' => null]);
 
         return response()->json([
             'success' => true,

@@ -37,7 +37,7 @@ class UserManagementController extends Controller
     // ═══════════════════════════════════════════════════════════
     public function index(Request $request)
     {
-        $query = User::with('detail')->whereIn('role', ['instructor', 'studio', 'admin']);
+        $query = User::with('detail')->whereIn('role', ['instructor', 'studio']);
 
         // Filters
         if ($role = $request->query('role')) {
@@ -340,6 +340,8 @@ class UserManagementController extends Controller
             'location'           => $d?->location ?? null,
             'bio'                => $d?->bio,
             'disciplines'        => $d?->disciplines ?? [],
+            'profile_picture'    => $d?->profile_picture,
+            'background_image'   => $d?->background_image,
 
             // Lifecycle
             'status'             => $user->status,

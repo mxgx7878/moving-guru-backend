@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Validator;
 
 class GrowPostController extends Controller
 {
+
+   
     // ═══════════════════════════════════════════════════════════
     //  PUBLIC — No auth required
     // ═══════════════════════════════════════════════════════════
@@ -136,7 +138,7 @@ class GrowPostController extends Controller
             'tags.*'       => 'string',
             'external_url' => 'nullable|url',
             'color'        => 'nullable|string|max:20',
-           'cover_image'  => 'nullable|file|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
+            'cover_image'  => 'nullable|file|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
             'expiry_date'  => 'nullable|date',
         ]);
 
@@ -148,12 +150,15 @@ class GrowPostController extends Controller
             ], 422);
         }
 
-        // Handle image uploads (base64 → store file)
-      $imageUrls = [];
-if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()) {
-    $path = $request->file('cover_image')->store('grow_posts', 'public');
-    $imageUrls[] = Storage::url($path);
-}
+        // 🔥 Same as profile logic
+        $generateUrl = fn($path) => config('app.url') . '/storage/app/public/' . $path;
+
+        $imageUrls = [];
+
+        if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()) {
+            $path = $request->file('cover_image')->store('grow_posts', 'public');
+            $imageUrls[] = $generateUrl($path);
+        }
 
         $post = GrowPost::create([
             'user_id'      => Auth::id(),
@@ -172,7 +177,7 @@ if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()
             'images'       => $imageUrls,
             'external_url' => $request->external_url,
             'color'        => $request->color,
-            'status'       => 'pending',   // Admin must approve before it's public
+            'status'       => 'pending',
             'expires_at'   => $request->expiry_date,
         ]);
 
@@ -205,7 +210,7 @@ if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()
             'tags'         => 'nullable|array',
             'external_url' => 'nullable|url',
             'expiry_date'  => 'nullable|date',
-    'cover_image'  => 'nullable|file|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
+            'cover_image'  => 'nullable|file|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
         ]);
 
         if ($validator->fails()) {
@@ -215,30 +220,47 @@ if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()
             ], 422);
         }
 
-$newImages = null; // null = don't touch
-if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()) {
-    // Delete the previous file from disk if we can figure out its path.
-    $existing = $post->images[0] ?? null;
-    if ($existing) {
-        // Strip the /storage/ prefix to get the actual file path on the disk.
-        $oldRelative = ltrim(str_replace('/storage/', '', parse_url($existing, PHP_URL_PATH) ?? ''), '/');
-        if ($oldRelative && Storage::disk('public')->exists($oldRelative)) {
-            Storage::disk('public')->delete($oldRelative);
+        // 🔥 Same URL logic
+        $generateUrl = fn($path) => config('app.url') . '/storage/app/public/' . $path;
+
+        $newImages = null;
+
+        if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()) {
+
+            // delete old image
+            $existing = $post->images[0] ?? null;
+
+            if ($existing) {
+                $oldRelative = ltrim(
+                    str_replace('/storage/app/public/', '', parse_url($existing, PHP_URL_PATH) ?? ''),
+                    '/'
+                );
+
+                if ($oldRelative && Storage::disk('public')->exists($oldRelative)) {
+                    Storage::disk('public')->delete($oldRelative);
+                }
+            }
+
+            $path = $request->file('cover_image')->store('grow_posts', 'public');
+            $newImages = [$generateUrl($path)];
+
+        } elseif ($request->boolean('remove_cover_image')) {
+
+            $existing = $post->images[0] ?? null;
+
+            if ($existing) {
+                $oldRelative = ltrim(
+                    str_replace('/storage/app/public/', '', parse_url($existing, PHP_URL_PATH) ?? ''),
+                    '/'
+                );
+
+                if ($oldRelative && Storage::disk('public')->exists($oldRelative)) {
+                    Storage::disk('public')->delete($oldRelative);
+                }
+            }
+
+            $newImages = [];
         }
-    }
-    $path = $request->file('cover_image')->store('grow_posts', 'public');
-    $newImages = [Storage::url($path)];
-} elseif ($request->boolean('remove_cover_image')) {
-    // Explicit wipe
-    $existing = $post->images[0] ?? null;
-    if ($existing) {
-        $oldRelative = ltrim(str_replace('/storage/', '', parse_url($existing, PHP_URL_PATH) ?? ''), '/');
-        if ($oldRelative && Storage::disk('public')->exists($oldRelative)) {
-            Storage::disk('public')->delete($oldRelative);
-        }
-    }
-    $newImages = [];
-}
 
         $post->update(array_filter([
             'title'        => $request->title,
@@ -254,12 +276,14 @@ if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()
             'tags'         => $request->tags,
             'external_url' => $request->external_url,
             'expires_at'   => $request->expiry_date,
-            'images'       => $newImages, // only update if new images provided
+            'images'       => $newImages,
         ], fn($v) => $v !== null));
 
-
-        // Re-submit for approval if content changed significantly
-       $post->update(['status' => 'pending', 'rejection_reason' => null]);
+        // optional: always resubmit
+        $post->update([
+            'status' => 'pending',
+            'rejection_reason' => null
+        ]);
 
         return response()->json([
             'success' => true,

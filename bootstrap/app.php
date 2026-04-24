@@ -12,10 +12,6 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        $middleware->use([
-            // App\Http\Middleware\AuthMiddleware::class,
-            // App\Http\Middleware\isAdmin::class,
-        ]);
         $middleware->alias([
              'is.admin' => \App\Http\Middleware\IsAdmin::class,
              'is.studio' => \App\Http\Middleware\IsStudio::class

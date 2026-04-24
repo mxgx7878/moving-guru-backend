@@ -7,7 +7,6 @@
 /.idea
 /.nova
 /.phpunit.cache
-/.vscode
 /.zed
 /auth.json
 /node_modules
@@ -20,5 +19,5 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
-.env
 .env.*.local
+config.bat

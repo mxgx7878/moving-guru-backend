@@ -16,12 +16,26 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'status',
+        'is_verified',
+        'approved_at',
+        'approved_by',
+        'suspended_at',
+        'suspension_reason',
+        'rejected_at',
+        'rejection_reason',
+        'last_login_at',
     ];
 
     protected $hidden = ['password', 'remember_token'];
 
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'is_verified'       => 'boolean',
+        'approved_at'       => 'datetime',
+        'suspended_at'      => 'datetime',
+        'rejected_at'       => 'datetime',
+        'last_login_at'     => 'datetime',
     ];
 
     protected $with = ['detail'];
@@ -45,4 +59,9 @@ class User extends Authenticatable
     {
         return $this->role === 'admin';
     }
+
+    public function isActive(): bool    { return $this->status === 'active'; }
+    public function isPending(): bool   { return $this->status === 'pending'; }
+    public function isSuspended(): bool { return $this->status === 'suspended'; }
+    public function isRejected(): bool  { return $this->status === 'rejected'; }
 }

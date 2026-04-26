@@ -25,14 +25,30 @@ class ProfileService
             $path = $data['background_image']->store('background_images', 'public');
             $detailFields['background_image'] = $generateUrl($path);
         }
-        if (isset($data['gallery_photos']) && is_array($data['gallery_photos'])) {
+        if (array_key_exists('existing_gallery_photos', $data)
+            || array_key_exists('gallery_photos', $data)) {
+
             $gallery = [];
-            foreach ($data['gallery_photos'] as $photo) {
-                if ($photo instanceof \Illuminate\Http\UploadedFile) {
-                    $gallery[] = $generateUrl($photo->store('gallery', 'public'));
+
+            // 1. Keep URLs user didn't delete
+            if (!empty($data['existing_gallery_photos']) && is_array($data['existing_gallery_photos'])) {
+                foreach ($data['existing_gallery_photos'] as $url) {
+                    if (is_string($url) && $url !== '') {
+                        $gallery[] = $url;
+                    }
                 }
             }
-            $detailFields['gallery_photos'] = $gallery;
+
+            // 2. Append new uploads
+            if (!empty($data['gallery_photos']) && is_array($data['gallery_photos'])) {
+                foreach ($data['gallery_photos'] as $photo) {
+                    if ($photo instanceof \Illuminate\Http\UploadedFile) {
+                        $gallery[] = $generateUrl($photo->store('gallery', 'public'));
+                    }
+                }
+            }
+
+            $detailFields['gallery_photos'] = array_slice($gallery, 0, 4);
         }
         if (isset($data['social_links']) && is_array($data['social_links'])) {
             $detailFields['social_links'] = array_values(
@@ -53,6 +69,13 @@ class ProfileService
             // Studio
             'studioName', 'contactName', 'country', 'phone',
             'website', 'studioSize', 'instagram',
+
+            'hiring_role_description',
+            'hiring_position_type',
+            'hiring_start_date',
+            'hiring_duration',
+            'hiring_compensation',
+            'hiring_qualification_level',
         ];
 
         foreach ($detailKeys as $key) {

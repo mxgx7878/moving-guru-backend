@@ -19,6 +19,12 @@ class UpdateProfileRequest extends FormRequest
             ),
         ]);
     }
+    if ($this->has('existing_gallery_photos') && is_string($this->existing_gallery_photos)) {
+    $decoded = json_decode($this->existing_gallery_photos, true);
+    $this->merge([
+        'existing_gallery_photos' => is_array($decoded) ? $decoded : [],
+    ]);
+}
 }
 
     public function rules()
@@ -43,6 +49,8 @@ class UpdateProfileRequest extends FormRequest
             'background_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:10240',
             'gallery_photos'   => 'nullable|array',
             'gallery_photos.*' => 'image|mimes:jpg,jpeg,png,webp|max:10240',
+            'existing_gallery_photos'    => 'nullable|array|max:4',
+            'existing_gallery_photos.*'  => 'string|max:10240',
 
             // Instructor
             'age'              => 'nullable|integer|min:18|max:100',
@@ -66,6 +74,30 @@ class UpdateProfileRequest extends FormRequest
             'website'          => 'nullable|string',
             'studioSize'       => 'nullable|string',
             'instagram'        => 'nullable|string',
+            'hiring_role_description'    => 'nullable|string|max:5000',
+            'hiring_position_type'       => 'nullable|in:permanent,temporary,substitute,weekend_cover,casual',
+            'hiring_start_date'          => 'nullable|date',
+            'hiring_duration'            => 'nullable|string|max:100',
+            'hiring_compensation'        => 'nullable|string|max:255',
+            'hiring_qualification_level' => 'nullable|in:none,intermediate,diploma,bachelors,masters,doctorate,cert_200hr,cert_500hr,cert_comprehensive,cert_specialized',
+        
         ];
     }
+
+    public function withValidator($validator)
+{
+    $validator->after(function ($validator) {
+        $existing = is_array($this->input('existing_gallery_photos'))
+            ? count($this->input('existing_gallery_photos')) : 0;
+        $new = is_array($this->file('gallery_photos'))
+            ? count($this->file('gallery_photos')) : 0;
+
+        if (($existing + $new) > 4) {
+            $validator->errors()->add(
+                'gallery_photos',
+                'You can have a maximum of 4 gallery photos.'
+            );
+        }
+    });
+}
 }

@@ -43,7 +43,7 @@ class AuthController extends Controller
             'openTo' => 'nullable|array',
             'openTo.*' => 'string',
             'location' => 'nullable|string',
-            'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+            'profile_picture' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:10240',
             'background_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:10240',
             'gallery_photos' => 'nullable|array',
             'gallery_photos.*' => 'image|mimes:jpg,jpeg,png,webp|max:10240',

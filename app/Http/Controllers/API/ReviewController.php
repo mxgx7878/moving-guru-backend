@@ -50,6 +50,66 @@ use Illuminate\Support\Facades\Validator;
  */
 class ReviewController extends Controller
 {
+
+
+    public function adminIndex(Request $request)
+    {
+        $query = Review::with([
+            'reviewer:id,name,email,role',
+            'reviewer.detail',
+            'reviewee:id,name,email,role',
+            'reviewee.detail',
+            'jobListing:id,title',
+        ]);
+
+        if ($direction = $request->get('direction')) {
+            $query->where('direction', $direction);
+        }
+
+        // ?max_rating=2 → only show 1- and 2-star reviews (likely problem reviews)
+        if ($request->filled('max_rating')) {
+            $query->where('rating', '<=', (int) $request->get('max_rating'));
+        }
+
+        if ($request->filled('rating')) {
+            $query->where('rating', (int) $request->get('rating'));
+        }
+
+        if ($search = trim((string) $request->get('search', ''))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('comment', 'like', "%{$search}%")
+                ->orWhereHas('reviewer', fn ($r) =>
+                    $r->where('name',  'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%"))
+                ->orWhereHas('reviewee', fn ($r) =>
+                    $r->where('name',  'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%"))
+                ->orWhereHas('jobListing', fn ($j) =>
+                    $j->where('title', 'like', "%{$search}%"));
+            });
+        }
+
+        switch ($request->get('sort', 'recent')) {
+            case 'oldest':       $query->orderBy('created_at', 'asc');  break;
+            case 'rating_low':   $query->orderBy('rating', 'asc');      break;
+            case 'rating_high':  $query->orderBy('rating', 'desc');     break;
+            case 'recent':
+            default:             $query->orderBy('created_at', 'desc'); break;
+        }
+
+        $perPage   = min((int) $request->get('per_page', 15), 50);
+        $paginator = $query->paginate($perPage);
+
+        return ApiResponse::success('Reviews fetched', [
+            'reviews' => $paginator->items(),
+            'meta' => [
+                'total'     => $paginator->total(),
+                'page'      => $paginator->currentPage(),
+                'per_page'  => $paginator->perPage(),
+                'last_page' => $paginator->lastPage(),
+            ],
+        ]);
+    }
     // ═══════════════════════════════════════════════════════════
     //  PUBLIC
     // ═══════════════════════════════════════════════════════════
@@ -218,7 +278,7 @@ class ReviewController extends Controller
      * Only the original reviewer can delete. Admins can also delete
      * (future work — not gated here).
      */
-    public function destroy($id)
+    public function destroy(Request $request,$id)
     {
         $review = Review::find($id);
         if (!$review) {
@@ -229,6 +289,11 @@ class ReviewController extends Controller
         if ($review->reviewer_id !== $user->id && $user->role !== 'admin') {
             return ApiResponse::error('You can only delete your own reviews.', [], 403);
         }
+
+        $reason = $user->role === 'admin'
+        ? trim((string) $request->input('reason', ''))
+        : null;
+
 
         $review->delete();
 

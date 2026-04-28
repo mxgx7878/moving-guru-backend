@@ -23,6 +23,7 @@ class JobListing extends Model
         'duration',
         'compensation',
         'requirements',
+        'cover_image',
         'qualification_level',
         'is_active',
          'vacancies',

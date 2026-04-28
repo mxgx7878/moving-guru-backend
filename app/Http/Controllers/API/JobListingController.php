@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Sanctum\PersonalAccessToken;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * JobListingController
@@ -261,6 +262,7 @@ public function index(Request $request)
             'duration'            => 'nullable|string|max:100',
             'compensation'        => 'nullable|string|max:255',
             'requirements'        => 'nullable|string',
+            'cover_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:10240',  
             'qualification_level' => 'nullable|in:none,intermediate,diploma,bachelors,masters,doctorate,cert_200hr,cert_500hr,cert_comprehensive,cert_specialized',
             'is_active'           => 'nullable|boolean',
         ]);
@@ -283,6 +285,10 @@ public function index(Request $request)
             $data['type']  = $data['types'][0];   // primary type for legacy display
         }
 
+        if ($request->hasFile('cover_image')) {
+            $path = $request->file('cover_image')->store('job_covers', 'public');
+            $data['cover_image'] = rtrim(config('app.url'), '/') . '/storage/app/public/' . $path;
+        }
         $job = JobListing::create($data);
         $job->loadMissing('studio');
         $job->applicants_count = 0;
@@ -338,6 +344,22 @@ public function index(Request $request)
         if ($incoming) {
             $data['types'] = array_values(array_unique($incoming));
             $data['type']  = $data['types'][0];   // primary type for legacy display
+        }
+
+        if ($request->hasFile('cover_image')) {
+    // Delete old file if it existed and was uploaded (not a remote URL)
+        if ($job->cover_image && str_starts_with($job->cover_image, config('app.url'))) {
+                $relative = str_replace(config('app.url') . '/storage/app/public/', '', $job->cover_image);
+                Storage::disk('public')->delete($relative);
+            }
+            $path = $request->file('cover_image')->store('job_covers', 'public');
+            $data['cover_image'] = rtrim(config('app.url'), '/') . '/storage/app/public/' . $path;
+        }
+
+        // Allow explicit removal via cover_image=null in the payload
+        if ($request->exists('cover_image') && !$request->hasFile('cover_image') &&
+            in_array($request->input('cover_image'), [null, '', 'null'], true)) {
+            $data['cover_image'] = null;
         }
  
         $job->update($data);

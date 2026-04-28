@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Artisan;
 
 /**
  * UserManagementController
@@ -55,6 +56,26 @@ class UserManagementController extends Controller
                           ->orWhere('location', 'like', "%{$q}%");
                     });
             });
+        }
+
+        if ($activity = $request->query('activity')) {
+            $threshold = match ($activity) {
+                'stale_3m'  => now()->subDays(90),
+                'stale_30d' => now()->subDays(30),
+                'recent'    => now()->subDays(7),
+                default     => null,
+            };
+
+           if ($threshold && in_array($activity, ['stale_3m', 'stale_30d'])) {
+                $query->where(function ($q) use ($threshold) {
+                    $q->where('last_login_at', '<', $threshold)
+                    ->orWhereNull('last_login_at');
+                })->whereHas('detail', function ($q) {
+                    $q->where('profileStatus', 'active');
+                });
+            } elseif ($threshold && $activity === 'recent') {
+                $query->where('last_login_at', '>=', $threshold);
+            }
         }
 
         $perPage = min((int) $request->query('per_page', 20), 100);
@@ -402,5 +423,16 @@ class UserManagementController extends Controller
         }
 
         return $stats;
+    }
+
+    public function runStaleSweep(Request $request)
+    {
+        $exitCode = Artisan::call('users:auto-deactivate-stale');
+        $output   = Artisan::output();
+
+        return ApiResponse::success('Stale-user sweep complete', [
+            'exit_code' => $exitCode,
+            'output'    => $output,
+        ]);
     }
 }

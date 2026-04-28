@@ -10,7 +10,7 @@ class AuthService
 {
     public function register($data, $request = null)
     {
-        $generateUrl = fn($path) => env('APP_URL') . '/storage/app/public/' . $path;
+        $generateUrl = fn($path) => config('app.url') . '/storage/app/public/' . $path;
 
         // ── File uploads ───────────────────────────────────────
         $profilePicture  = null;

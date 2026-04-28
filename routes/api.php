@@ -14,6 +14,8 @@ use App\Http\Controllers\API\UserManagementController;
 use App\Http\Controllers\API\PostController;
 use App\Http\Controllers\API\AdminDashboardController;
 use App\Http\Controllers\API\EmailBroadcastController;
+use App\Http\Controllers\API\InstructorDashboardController;
+use App\Http\Controllers\API\StudioDashboardController;
 
 use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsStudio;
@@ -27,7 +29,7 @@ Route::get('grow-posts/{id}',  [GrowPostController::class, 'show'])->whereNumber
 Route::get('jobs',            [JobListingController::class, 'index']);
 Route::get('jobs/{id}',       [JobListingController::class, 'show'])->whereNumber('id');
 Route::get('instructors',        [InstructorController::class, 'index']);
-Route::get('instructors/{id}',   [InstructorController::class, 'show'])->whereNumber('id');
+
 Route::get('users/{id}/reviews', [ReviewController::class, 'forUser'])->whereNumber('id');
 
 Route::middleware('auth:sanctum')->group(function () {
@@ -53,6 +55,7 @@ Route::middleware('auth:sanctum')->group(function () {
   Route::get('applications/mine', [JobListingController::class, 'myApplications']);
   Route::delete('applications/{id}', [JobListingController::class, 'withdraw'])->whereNumber('id');
   Route::get('me/instructors', [InstructorController::class, 'index']);
+  Route::get('instructors/{id}',   [InstructorController::class, 'show'])->whereNumber('id');
 
 
   Route::get('instructors/saved',  [InstructorController::class, 'saved'])
@@ -67,6 +70,7 @@ Route::middleware('auth:sanctum')->group(function () {
   Route::get('posts',      [PostController::class, 'index']);
   Route::get('posts/{id}', [PostController::class, 'show'])->whereNumber('id');
   Route::post('users/run-stale-sweep', [UserManagementController::class, 'runStaleSweep']);
+  Route::get('dashboard/instructor', [InstructorDashboardController::class, 'index']);
 });
 
 Route::middleware(['auth:sanctum', IsStudio::class])->group(function () {
@@ -77,6 +81,7 @@ Route::middleware(['auth:sanctum', IsStudio::class])->group(function () {
   Route::patch('applications/{id}/status', [JobListingController::class, 'updateApplicationStatus'])->whereNumber('id');
   Route::post('instructors/save',   [InstructorController::class, 'save']);
   Route::post('instructors/unsave', [InstructorController::class, 'unsave']);
+  Route::get('dashboard/studio',     [StudioDashboardController::class,    'index']);
 });
 
 Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(function () {

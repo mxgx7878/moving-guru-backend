@@ -160,6 +160,11 @@ public function index(Request $request)
 
         $viewer = $request->user();
 
+        log::debug('Instructor profile viewed', [
+            'instructor_id' => $instructor->id,
+            'viewer_id'     => $viewer?->id,
+        ]);
+
         // Record profile view — skip when self-viewing.
         if ($viewer && $viewer->id !== $instructor->id) {
             // Wrap in try so a transient DB hiccup doesn't break the fetch.

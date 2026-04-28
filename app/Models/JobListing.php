@@ -13,7 +13,8 @@ class JobListing extends Model
     protected $fillable = [
         'studio_id',
         'title',
-        'type',
+        'type',                  // primary (= types[0]) — kept for backward compat
+        'types',         
         'role_type',
         'description',
         'disciplines',
@@ -30,6 +31,7 @@ class JobListing extends Model
 
     protected $casts = [
         'disciplines' => 'array',
+        'types'            => 'array',
         'is_active'   => 'boolean',
         'start_date'  => 'date:Y-m-d',
         'vacancies' => 'integer',
@@ -64,7 +66,11 @@ class JobListing extends Model
     /** Filter by listing type (hire | swap | energy_exchange). */
     public function scopeOfType($query, ?string $type)
     {
-        return $type ? $query->where('type', $type) : $query;
+        if (!$type) return $query;
+        return $query->where(function ($q) use ($type) {
+            $q->whereJsonContains('types', $type)
+            ->orWhere('type', $type);
+        });
     }
 
     /** Partial location match — used by the public search. */

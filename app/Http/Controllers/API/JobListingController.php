@@ -120,8 +120,13 @@ public function index(Request $request)
             }])
             ->ofType($request->get('type'))
             ->inLocation($request->get('location'))
-            ->hasDiscipline($request->get('discipline'))
-            ->latest();
+            ->hasDiscipline($request->get('discipline'));
+
+             foreach (['country', 'city', 'suburb'] as $part) {
+        if ($val = trim((string) $request->get($part, ''))) {
+            $query->where('location', 'like', "%{$val}%");
+        }
+    }
 
         // Public + instructor view is scoped to active listings.
         // Admin sees everything and can filter explicitly.
@@ -154,6 +159,14 @@ public function index(Request $request)
                     });
                 }
             });
+        }
+
+        switch ($request->get('sort', 'recent')) {
+        case 'name_asc':  $query->orderBy('title',      'asc');  break;
+        case 'name_desc': $query->orderBy('title',      'desc'); break;
+        case 'oldest':    $query->orderBy('created_at', 'asc');  break;
+        case 'recent':
+        default:          $query->orderBy('created_at', 'desc'); break;
         }
 
         // Instructor-only: attach own applications so Apply button state works.
@@ -236,7 +249,9 @@ public function index(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'title'               => 'required|string|max:255',
-            'type'                => 'required|in:hire,swap,energy_exchange',
+            'types'               => 'required_without:type|array|min:1',
+            'types.*'             => 'in:hire,swap,energy_exchange',
+            'type'                => 'sometimes|in:hire,swap,energy_exchange',
             'role_type'           => 'nullable|in:permanent,temporary,substitute,weekend_cover,casual',
             'description'         => 'required|string',
             'disciplines'         => 'nullable|array',
@@ -259,6 +274,14 @@ public function index(Request $request)
         $data['role_type']           = $data['role_type'] ?? 'permanent';
         $data['qualification_level'] = $data['qualification_level'] ?? 'none';
         $data['is_active']           = $data['is_active'] ?? true;
+        $incoming = $request->input('types');
+        if (!is_array($incoming) || count($incoming) === 0) {
+            $incoming = $request->filled('type') ? [$request->input('type')] : null;
+        }
+        if ($incoming) {
+            $data['types'] = array_values(array_unique($incoming));
+            $data['type']  = $data['types'][0];   // primary type for legacy display
+        }
 
         $job = JobListing::create($data);
         $job->loadMissing('studio');
@@ -276,6 +299,8 @@ public function index(Request $request)
 
         $validator = Validator::make($request->all(), [
             'title'               => 'sometimes|string|max:255',
+            'types'               => 'required_without:type|array|min:1',
+            'types.*'             => 'in:hire,swap,energy_exchange',
             'type'                => 'sometimes|in:hire,swap,energy_exchange',
             'role_type'           => 'sometimes|in:permanent,temporary,substitute,weekend_cover,casual',
             'description'         => 'sometimes|string',
@@ -304,6 +329,15 @@ public function index(Request $request)
                 [],
                 422
             );
+        }
+
+        $incoming = $request->input('types');
+        if (!is_array($incoming) || count($incoming) === 0) {
+            $incoming = $request->filled('type') ? [$request->input('type')] : null;
+        }
+        if ($incoming) {
+            $data['types'] = array_values(array_unique($incoming));
+            $data['type']  = $data['types'][0];   // primary type for legacy display
         }
  
         $job->update($data);

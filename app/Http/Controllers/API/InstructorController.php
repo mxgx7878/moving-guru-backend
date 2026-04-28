@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
 
 /**
  * InstructorController
@@ -44,83 +45,105 @@ class InstructorController extends Controller
      *   ?search=keyword               (name, bio)
      *   ?per_page=20
      */
-    public function index(Request $request)
-    {
-        $activeOnly = $request->boolean('active_only', true);
+public function index(Request $request)
+{
+    $activeOnly = $request->boolean('active_only', true);
+    $authUser   = Auth::user();
 
-        $query = User::where('role', 'instructor')
-            ->with('detail')
-            ->when(isset($request->isDeleted), function ($q) {
-                $q->where(function ($sub) {
-                    $sub->whereNull('isDeleted')->orWhere('isDeleted', false);
-                });
+    Log::debug('Auth User:', ['user' => $authUser]);
+
+    $query = User::where('role', 'instructor')
+        ->with('detail')
+        // Self-exclusion: an instructor should not see themselves in their
+        // own swap-search results. No-op for studios / admins / anonymous.
+        ->when($authUser, fn ($q) => $q->where('users.id', '!=', $authUser->id))
+        ->when(isset($request->isDeleted), function ($q) {
+            $q->where(function ($sub) {
+                $sub->whereNull('isDeleted')->orWhere('isDeleted', false);
             });
-
-        // Join user_details for filtering on detail columns
-        $query->whereHas('detail', function ($q) use ($request, $activeOnly) {
-            if ($activeOnly) {
-                $q->where('profileStatus', 'active');
-            }
-
-            if ($discipline = $request->get('discipline')) {
-                $q->whereJsonContains('disciplines', $discipline);
-            }
-
-            if ($openTo = $request->get('openTo')) {
-                $q->whereJsonContains('openTo', $openTo);
-            }
-
-            if ($location = trim((string) $request->get('location', ''))) {
-                $q->where(function ($sub) use ($location) {
-                    $sub->where('location',    'like', "%{$location}%")
-                        ->orWhere('countryFrom', 'like', "%{$location}%")
-                        ->orWhere('travelingTo', 'like', "%{$location}%");
-                });
-            }
-
-            if ($bio = $request->get('search')) {
-                // Search inside detail.bio; name search is handled on the
-                // outer query so we don't have to cross-scope.
-                $q->orWhere('bio', 'like', "%{$bio}%");
-            }
         });
 
-        // Outer name search — kept separate from detail filters so the
-        // name-OR-bio search works even when name lives on the users table.
-        if ($search = trim((string) $request->get('search', ''))) {
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%");
+    // Join user_details for filtering on detail columns
+    $query->whereHas('detail', function ($q) use ($request, $activeOnly) {
+        if ($activeOnly) {
+            $q->where('profileStatus', 'active');
+        }
+
+        if ($discipline = $request->get('discipline')) {
+            $q->whereJsonContains('disciplines', $discipline);
+        }
+
+        if ($openTo = $request->get('openTo')) {
+            $q->whereJsonContains('openTo', $openTo);
+        }
+
+        foreach (['country', 'city', 'suburb'] as $part) {
+            if ($val = trim((string) $request->get($part, ''))) {
+                $q->where(function ($sub) use ($val) {
+                    $sub->where('location',    'like', "%{$val}%")
+                        ->orWhere('countryFrom', 'like', "%{$val}%")
+                        ->orWhere('travelingTo', 'like', "%{$val}%");
+                });
+            }
+        }
+
+        // Legacy single-location filter
+        if ($location = trim((string) $request->get('location', ''))) {
+            $q->where(function ($sub) use ($location) {
+                $sub->where('location',    'like', "%{$location}%")
+                    ->orWhere('countryFrom', 'like', "%{$location}%")
+                    ->orWhere('travelingTo', 'like', "%{$location}%");
             });
         }
 
-        // If caller is a studio, attach `is_saved` so the UI can render
-        // the heart icon state without a separate lookup.
-        $user = $request->user();
-        $savedIds = [];
-        if ($user && $user->role === 'studio') {
-            $savedIds = SavedInstructor::where('studio_id', $user->id)
-                ->pluck('instructor_id')
-                ->toArray();
+        if ($bio = $request->get('search')) {
+            $q->orWhere('bio', 'like', "%{$bio}%");
         }
+    });
 
-        $perPage = min((int) $request->get('per_page', 20), 50);
-        $paginator = $query->latest('users.created_at')->paginate($perPage);
-
-        $paginator->getCollection()->transform(function ($inst) use ($savedIds) {
-            $inst->is_saved = in_array($inst->id, $savedIds);
-            return $inst;
+    // Outer name search — kept separate from detail filters so the
+    // name-OR-bio search works even when name lives on the users table.
+    if ($search = trim((string) $request->get('search', ''))) {
+        $query->where(function ($q) use ($search) {
+            $q->where('name', 'like', "%{$search}%");
         });
-
-        return ApiResponse::success('Instructors fetched', [
-            'instructors' => $paginator->items(),
-            'meta' => [
-                'total'     => $paginator->total(),
-                'page'      => $paginator->currentPage(),
-                'per_page'  => $paginator->perPage(),
-                'last_page' => $paginator->lastPage(),
-            ],
-        ]);
     }
+
+    // Sort
+    switch ($request->get('sort', 'recent')) {
+        case 'name_asc':  $query->orderBy('users.name',       'asc');  break;
+        case 'name_desc': $query->orderBy('users.name',       'desc'); break;
+        case 'oldest':    $query->orderBy('users.created_at', 'asc');  break;
+        case 'recent':
+        default:          $query->orderBy('users.created_at', 'desc'); break;
+    }
+
+    // Saved-by-this-studio lookup — only meaningful when the caller is a studio.
+    $savedIds = [];
+    if ($authUser && $authUser->role === 'studio') {
+        $savedIds = SavedInstructor::where('studio_id', $authUser->id)
+            ->pluck('instructor_id')
+            ->toArray();
+    }
+
+    $perPage   = min((int) $request->get('per_page', 10), 50);
+    $paginator = $query->paginate($perPage);
+
+    $paginator->getCollection()->transform(function ($inst) use ($savedIds) {
+        $inst->is_saved = in_array($inst->id, $savedIds);
+        return $inst;
+    });
+
+    return ApiResponse::success('Instructors fetched', [
+        'instructors' => $paginator->items(),
+        'meta' => [
+            'total'     => $paginator->total(),
+            'page'      => $paginator->currentPage(),
+            'per_page'  => $paginator->perPage(),
+            'last_page' => $paginator->lastPage(),
+        ],
+    ]);
+}
 
     /**
      * GET /api/instructors/{id}

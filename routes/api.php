@@ -51,6 +51,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post  ('jobs/{id}/apply',   [JobListingController::class, 'apply'])->whereNumber('id');
     Route::get   ('applications/mine', [JobListingController::class, 'myApplications']);
     Route::delete('applications/{id}', [JobListingController::class, 'withdraw'])->whereNumber('id');
+    Route::get('me/instructors', [InstructorController::class, 'index']);
+
 
     Route::get('instructors/saved',  [InstructorController::class, 'saved'])
          ->middleware(IsStudio::class);

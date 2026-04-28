@@ -13,6 +13,7 @@ use App\Http\Controllers\API\ReviewController;
 use App\Http\Controllers\API\UserManagementController;
 use App\Http\Controllers\API\PostController;
 use App\Http\Controllers\API\AdminDashboardController;
+use App\Http\Controllers\API\EmailBroadcastController;
 
 use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsStudio;
@@ -111,4 +112,8 @@ Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(func
   Route::patch('posts/{id}/unpublish',   [PostController::class, 'unpublish'])->whereNumber('id');
   Route::get('dashboard/stats',    [AdminDashboardController::class, 'stats']);
   Route::get('dashboard/activity', [AdminDashboardController::class, 'activity']);
+  Route::get('dashboard/revenue', [AdminDashboardController::class, 'revenue']);
+  Route::get ('emails/audience-counts', [EmailBroadcastController::class, 'audienceCounts']);
+Route::post('emails/broadcast',       [EmailBroadcastController::class, 'send']);
+
 });

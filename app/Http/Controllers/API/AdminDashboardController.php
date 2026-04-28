@@ -59,6 +59,28 @@ class AdminDashboardController extends Controller
             ->groupBy('status')
             ->pluck('c', 'status');
 
+        $signupsByMonth = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $monthStart = Carbon::now()->subMonths($i)->startOfMonth();
+            $monthEnd   = $monthStart->copy()->endOfMonth();
+
+            $instructors = User::where('role', 'instructor')
+                ->whereBetween('created_at', [$monthStart, $monthEnd])
+                ->count();
+            $studios = User::where('role', 'studio')
+                ->whereBetween('created_at', [$monthStart, $monthEnd])
+                ->count();
+
+            $signupsByMonth[] = [
+                'month'       => $monthStart->format('M Y'),
+                'month_short' => $monthStart->format('M'),
+                'instructors' => $instructors,
+                'studios'     => $studios,
+                'total'       => $instructors + $studios,
+            ];
+        }
+
+
         return ApiResponse::success('Dashboard stats', [
             'signups_today' => User::whereIn('role', ['instructor', 'studio'])
                 ->whereDate('created_at', Carbon::today())
@@ -151,6 +173,55 @@ class AdminDashboardController extends Controller
             'recent_signups'        => $recentSignups,
             'recent_jobs'           => $recentJobs,
             'recent_subscriptions'  => [],  // Empty until billing is wired
+        ]);
+    }
+
+
+    public function revenue()
+    {
+        $now = Carbon::now();
+
+        // ── 12-month breakdown (mock, trending upward) ───────────
+        $months = [];
+        $cumulative = 0;
+        for ($i = 11; $i >= 0; $i--) {
+            $month     = $now->copy()->subMonths($i);
+            $base      = 600 + (11 - $i) * 180;
+            $variance  = rand(-200, 280);
+            $revenue   = max(0, $base + $variance);
+            $cumulative += $revenue;
+            $months[]  = [
+                'month'          => $month->format('M Y'),
+                'month_short'    => $month->format('M'),
+                'year'           => (int) $month->format('Y'),
+                'revenue'        => $revenue,
+                'cumulative'     => $cumulative,
+                'payments_count' => intval($revenue / 15),
+            ];
+        }
+
+        $thisMonthRevenue = end($months)['revenue'];
+        $lastMonthRevenue = $months[count($months) - 2]['revenue'];
+        $totalRevenue     = $cumulative;
+
+        $recentPayments = [
+            ['id' => 1, 'user_name' => 'Aria Patel',     'plan' => 'Annual',   'amount' => 60, 'created_at' => $now->copy()->subHours(2)->toIso8601String()],
+            ['id' => 2, 'user_name' => 'Studio Lumière', 'plan' => 'Monthly',  'amount' => 15, 'created_at' => $now->copy()->subHours(8)->toIso8601String()],
+            ['id' => 3, 'user_name' => 'Jordan Reeves',  'plan' => '6 Months', 'amount' => 45, 'created_at' => $now->copy()->subDay()->toIso8601String()],
+            ['id' => 4, 'user_name' => 'Casa de Yoga',   'plan' => 'Annual',   'amount' => 60, 'created_at' => $now->copy()->subDays(2)->toIso8601String()],
+            ['id' => 5, 'user_name' => 'Marcus Wei',     'plan' => 'Monthly',  'amount' => 15, 'created_at' => $now->copy()->subDays(3)->toIso8601String()],
+        ];
+
+        return ApiResponse::success('Dashboard revenue', [
+            'total_revenue'     => $totalRevenue,
+            'mrr'               => $thisMonthRevenue,
+            'this_month'        => $thisMonthRevenue,
+            'last_month'        => $lastMonthRevenue,
+            'growth'            => $this->growth($thisMonthRevenue, $lastMonthRevenue),
+            'monthly_breakdown' => $months,
+            'recent_payments'   => $recentPayments,
+            'currency'          => 'USD',
+            'mock'              => true,
         ]);
     }
 

@@ -16,6 +16,10 @@ use App\Http\Controllers\API\AdminDashboardController;
 use App\Http\Controllers\API\EmailBroadcastController;
 use App\Http\Controllers\API\InstructorDashboardController;
 use App\Http\Controllers\API\StudioDashboardController;
+use App\Http\Controllers\API\SubscriptionController;
+use App\Http\Controllers\API\PaymentController;
+use App\Http\Controllers\API\PlanController;
+use App\Http\Controllers\API\AdminPlanController;
 
 use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsStudio;
@@ -31,6 +35,7 @@ Route::get('jobs/{id}',       [JobListingController::class, 'show'])->whereNumbe
 Route::get('instructors',        [InstructorController::class, 'index']);
 
 Route::get('users/{id}/reviews', [ReviewController::class, 'forUser'])->whereNumber('id');
+Route::get('plans', [PlanController::class, 'index']);
 
 Route::middleware('auth:sanctum')->group(function () {
   Route::post('/logout', [AuthController::class, 'logout']);
@@ -71,6 +76,21 @@ Route::middleware('auth:sanctum')->group(function () {
   Route::get('posts/{id}', [PostController::class, 'show'])->whereNumber('id');
   Route::post('users/run-stale-sweep', [UserManagementController::class, 'runStaleSweep']);
   Route::get('dashboard/instructor', [InstructorDashboardController::class, 'index']);
+
+  
+
+    // Subscriptions
+  Route::get  ('subscription',                 [SubscriptionController::class, 'show']);
+  Route::post ('subscription/setup-intent',    [SubscriptionController::class, 'setupIntent']);
+  Route::post ('subscription/payment-method',  [SubscriptionController::class, 'attachPaymentMethod']);
+  Route::post ('subscription/change',          [SubscriptionController::class, 'change']);
+  Route::post ('subscription/cancel',          [SubscriptionController::class, 'cancel']);
+  Route::post ('subscription/resume',          [SubscriptionController::class, 'resume']);
+
+  // Payments
+  Route::get  ('payments',              [PaymentController::class, 'index']);
+  Route::get  ('payments/{id}/invoice', [PaymentController::class, 'invoice']);
+
 });
 
 Route::middleware(['auth:sanctum', IsStudio::class])->group(function () {
@@ -119,6 +139,10 @@ Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(func
   Route::get('dashboard/activity', [AdminDashboardController::class, 'activity']);
   Route::get('dashboard/revenue', [AdminDashboardController::class, 'revenue']);
   Route::get ('emails/audience-counts', [EmailBroadcastController::class, 'audienceCounts']);
-Route::post('emails/broadcast',       [EmailBroadcastController::class, 'send']);
+  Route::post('emails/broadcast',       [EmailBroadcastController::class, 'send']);
+  Route::get   ('plans',       [AdminPlanController::class, 'index']);
+  Route::post  ('plans',       [AdminPlanController::class, 'store']);
+  Route::patch ('plans/{id}',  [AdminPlanController::class, 'update']);
+  Route::delete('plans/{id}',  [AdminPlanController::class, 'destroy']);
 
 });

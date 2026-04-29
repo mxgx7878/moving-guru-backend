@@ -15,7 +15,7 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
         "league/oauth2-client": "^2.9",
-        "stripe/stripe-php": "^18.1",
+        "stripe/stripe-php": "^20.1",
         "xeroapi/xero-php-oauth2": "^10.3"
     },
     "require-dev": {

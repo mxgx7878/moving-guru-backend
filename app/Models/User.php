@@ -17,6 +17,8 @@ class User extends Authenticatable
         'password',
         'role',
         'status',
+        'stripe_customer_id',
+        'default_payment_method_id',
         'is_verified',
         'approved_at',
         'approved_by',
@@ -58,6 +60,23 @@ class User extends Authenticatable
     public function isAdmin()
     {
         return $this->role === 'admin';
+    }
+
+    public function subscriptions()
+    {
+        return $this->hasMany(Subscription::class, 'userId');
+    }
+
+    public function activeSubscription()
+    {
+        return $this->hasOne(Subscription::class, 'userId')
+            ->whereIn('status', ['active', 'trialing', 'past_due'])
+            ->latest();
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(Payment::class, 'userId');
     }
 
     public function isActive(): bool    { return $this->status === 'active'; }

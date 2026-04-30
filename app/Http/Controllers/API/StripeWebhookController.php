@@ -57,7 +57,6 @@ class StripeWebhookController extends Controller
 
     protected function onInvoicePaid($invoice): void
     {
-        // 1. Record payment in DB
         try {
             $payment = $this->stripe->recordPaymentFromInvoice($invoice);
         } catch (\Throwable $e) {
@@ -65,7 +64,6 @@ class StripeWebhookController extends Controller
             return;
         }
 
-        // 2. Send payment confirmation email
         $user = $payment->user;
         if (!$user?->email) return;
 
@@ -73,15 +71,14 @@ class StripeWebhookController extends Controller
             $user->notify(new PaymentSucceededNotification($payment));
         } catch (\Throwable $e) {
             Log::warning('PaymentSucceededNotification failed', [
-                'userId' => $user->id,
-                'error'  => $e->getMessage(),
+                'userId' => $user->id, 'error' => $e->getMessage(),
             ]);
         }
     }
 
     protected function onInvoiceFailed($invoice): void
     {
-        // 1. Record payment as failed in DB
+        // 1. Record payment as failed
         try {
             $payment = $this->stripe->recordPaymentFromInvoice($invoice);
             $payment->forceFill(['status' => 'failed'])->save();
@@ -93,22 +90,49 @@ class StripeWebhookController extends Controller
         $sub = null;
         if ($invoice->subscription) {
             $sub = Subscription::where('stripeSubscriptionId', $invoice->subscription)
-                ->with('plan')
-                ->first();
+                ->with('plan')->first();
             if ($sub) $sub->forceFill(['status' => 'past_due'])->save();
         }
 
-        // 3. Send payment failed email
+        // 3. Extract the actual failure reason from Stripe payload
+        $reason = $this->extractInvoiceFailureReason($invoice);
+
+        // 4. Send email with the reason
         $user = User::where('stripe_customer_id', $invoice->customer)->first();
         if (!$user?->email || !$sub) return;
 
         try {
-            $user->notify(new PaymentFailedNotification($sub));
+            $user->notify(new PaymentFailedNotification($sub, $reason));
         } catch (\Throwable $e) {
             Log::warning('PaymentFailedNotification failed', [
-                'userId' => $user->id,
-                'error'  => $e->getMessage(),
+                'userId' => $user->id, 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Pull a human-readable failure reason from a failed Invoice.
+     * Stripe puts it in different places depending on what failed.
+     */
+    protected function extractInvoiceFailureReason($invoice): ?string
+    {
+        // Most specific — the PaymentIntent's last error
+        $pi = $invoice->payment_intent ?? null;
+
+        if (is_object($pi) && !empty($pi->last_payment_error?->message)) {
+            return $pi->last_payment_error->message;
+        }
+
+        // Charge-level outcome (e.g. "Your card was declined.")
+        if (is_object($pi) && !empty($pi->charges?->data[0]?->outcome?->seller_message)) {
+            return $pi->charges->data[0]->outcome->seller_message;
+        }
+
+        // Invoice-level error (rare but possible)
+        if (!empty($invoice->last_finalization_error?->message)) {
+            return $invoice->last_finalization_error->message;
+        }
+
+        return null;
     }
 }

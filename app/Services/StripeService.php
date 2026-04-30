@@ -237,18 +237,30 @@ class StripeService
             ?? optional(Plan::where('stripePriceId', $sub->items->data[0]->price->id ?? null)->first())->id
             ?? $sub->metadata->planId
             ?? null;
-
+    
+        // Period now lives on the subscription_item (new Stripe billing API)
+        $item          = $sub->items->data[0] ?? null;
+        $periodStartTs = $item->current_period_start ?? $sub->current_period_start ?? null;
+        $periodEndTs   = $item->current_period_end   ?? $sub->current_period_end   ?? null;
+    
+        // Normalise Stripe statuses → local enum.
+        // Stripe uses American "canceled"; our enum uses British "cancelled".
+        $status = match ($sub->status) {
+            'canceled' => 'cancelled',
+            default    => $sub->status,
+        };
+    
         return Subscription::updateOrCreate(
             ['stripeSubscriptionId' => $sub->id],
             [
                 'userId'             => $user->id,
                 'planId'             => $planId,
-                'status'             => $sub->status,
-                'currentPeriodStart' => $sub->current_period_start ? Carbon::createFromTimestamp($sub->current_period_start) : null,
-                'currentPeriodEnd'   => $sub->current_period_end   ? Carbon::createFromTimestamp($sub->current_period_end)   : null,
+                'status'             => $status,
+                'currentPeriodStart' => $periodStartTs ? \Carbon\Carbon::createFromTimestamp($periodStartTs) : null,
+                'currentPeriodEnd'   => $periodEndTs   ? \Carbon\Carbon::createFromTimestamp($periodEndTs)   : null,
                 'cancelAtPeriodEnd'  => (bool) $sub->cancel_at_period_end,
-                'cancelledAt'        => $sub->canceled_at ? Carbon::createFromTimestamp($sub->canceled_at) : null,
-                'trialEndsAt'        => $sub->trial_end   ? Carbon::createFromTimestamp($sub->trial_end)   : null,
+                'cancelledAt'        => $sub->canceled_at ? \Carbon\Carbon::createFromTimestamp($sub->canceled_at) : null,
+                'trialEndsAt'        => $sub->trial_end   ? \Carbon\Carbon::createFromTimestamp($sub->trial_end)   : null,
             ]
         );
     }

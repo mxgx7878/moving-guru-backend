@@ -2,25 +2,40 @@
 
 namespace App\Http\Controllers\API;
 
+use App\Helpers\ApiResponse;
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
-use App\Helpers\ApiResponse;
 use Illuminate\Http\Request;
 
 class PaymentController extends Controller
 {
-    /** GET /api/payments */
+    /** GET /api/payments — list current user's payment history */
     public function index(Request $request)
     {
-        $payments = Payment::where('userId', $request->user()->id)
+        $payments = Payment::with('subscription.plan')
+            ->where('userId', $request->user()->id)
             ->orderByDesc('paidAt')
             ->orderByDesc('id')
-            ->get();
+            ->get()
+            ->map(fn (Payment $p) => [
+                'id'               => $p->id,
+                'plan'             => $p->subscription?->plan?->name ?? 'Subscription',
+                'amount'           => (float) $p->amount,
+                'currency'         => $p->currency,
+                // Use Stripe's exact status — webhook stores it raw
+                // (paid, failed, pending, refunded, uncollectible, etc.)
+                'status'           => $p->status,
+                'date'             => $p->paidAt?->format('d M Y') ?? '—',
+                'invoice'          => $p->stripeInvoiceId ?? '—',
+                'invoicePdfUrl'    => $p->invoicePdfUrl,
+                'hostedInvoiceUrl' => $p->hostedInvoiceUrl,
+                'description'      => $p->description,
+            ]);
 
         return ApiResponse::success('Payments loaded', ['payments' => $payments]);
     }
 
-    /** GET /api/payments/{id}/invoice — redirects to Stripe-hosted PDF */
+    /** GET /api/payments/{id}/invoice — redirect to Stripe-hosted PDF */
     public function invoice(Request $request, $id)
     {
         $payment = Payment::where('id', $id)

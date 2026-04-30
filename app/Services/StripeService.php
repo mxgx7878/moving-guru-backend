@@ -100,15 +100,98 @@ class StripeService
         }
 
         $stripeSub = $this->stripe->subscriptions->create([
-            'customer'           => $customerId,
-            'items'              => [['price' => $plan->stripePriceId]],
-            'payment_behavior'   => 'default_incomplete',
-            'payment_settings'   => ['save_default_payment_method' => 'on_subscription'],
-            'expand'             => ['latest_invoice.payment_intent'],
-            'metadata'           => ['userId' => $user->id, 'planId' => $plan->id],
+            'customer'         => $customerId,
+            'items'            => [['price' => $plan->stripePriceId]],
+            'payment_behavior' => 'default_incomplete',
+            'payment_settings' => [
+                'save_default_payment_method' => 'on_subscription',
+                'payment_method_types'        => ['card'],
+            ],
+            'expand'           => ['latest_invoice'],
+            'metadata'         => ['userId' => $user->id, 'planId' => $plan->id],
         ]);
 
+        $this->payFirstInvoice($stripeSub, $user);
+
+        $stripeSub = $this->stripe->subscriptions->retrieve($stripeSub->id, [
+            'expand' => ['latest_invoice.payment_intent'],
+        ]);
+
+        if (!in_array($stripeSub->status, ['active', 'trialing'])) {
+            $reason = $this->extractFailureReason($stripeSub);
+            $this->upsertLocalSubscription($user, $plan, $stripeSub);
+            throw new \RuntimeException($reason);
+        }
+
         return $this->upsertLocalSubscription($user, $plan, $stripeSub);
+    }
+    
+    /**
+     * Confirm the first invoice's PaymentIntent using the customer's default
+     * payment method. Catches Stripe card errors and rethrows with a clean
+     * message so the controller can return a clean 422.
+     */
+    protected function payFirstInvoice(\Stripe\Subscription $sub, User $user): void
+    {
+        $invoice = $sub->latest_invoice;
+
+        if (!$invoice) {
+            \Illuminate\Support\Facades\Log::warning('No invoice on new subscription', ['sub' => $sub->id]);
+            return;
+        }
+
+        if ($invoice->status === 'paid') return;
+        if ($invoice->amount_due === 0)  return;
+
+        try {
+            $paid = $this->stripe->invoices->pay($invoice->id, [
+                'payment_method' => $user->default_payment_method_id,
+            ]);
+
+            \Illuminate\Support\Facades\Log::info('Invoice pay result', [
+                'invoice_id'  => $paid->id,
+                'status'      => $paid->status,
+                'amount_paid' => $paid->amount_paid,
+            ]);
+        } catch (\Stripe\Exception\CardException $e) {
+            $err = $e->getError();
+            \Illuminate\Support\Facades\Log::warning('CardException on invoice pay', [
+                'code'         => $err->code,
+                'decline_code' => $err->decline_code ?? null,
+                'message'      => $err->message,
+            ]);
+            throw new \RuntimeException(
+                $err->message ?: 'Your card was declined. Please try a different card.'
+            );
+        } catch (\Stripe\Exception\InvalidRequestException $e) {
+            \Illuminate\Support\Facades\Log::warning('InvalidRequest on invoice pay', [
+                'message' => $e->getError()->message ?? $e->getMessage(),
+            ]);
+            throw new \RuntimeException(
+                'Could not process payment: ' . ($e->getError()->message ?? $e->getMessage())
+            );
+        }
+    }
+    
+    /**
+     * Pull a human-readable reason out of a non-active subscription so we can
+     * tell the user exactly what went wrong.
+     */
+    protected function extractFailureReason(StripeSubscription $sub): string
+    {
+        $pi = $sub->latest_invoice?->payment_intent ?? null;
+    
+        if ($pi?->last_payment_error?->message) {
+            return $pi->last_payment_error->message;
+        }
+    
+        return match ($sub->status) {
+            'incomplete'      => 'Payment could not be completed. Please try a different card.',
+            'incomplete_expired' => 'Payment timed out. Please try subscribing again.',
+            'past_due'        => 'Payment failed. Please update your card and try again.',
+            'unpaid'          => 'Payment failed. Please update your card and try again.',
+            default           => "Subscription is in {$sub->status} state — please contact support.",
+        };
     }
 
     protected function swapPlan(Subscription $local, Plan $newPlan): Subscription
@@ -176,24 +259,42 @@ class StripeService
         if (!$user) {
             throw new \RuntimeException("No local user for Stripe customer {$invoice->customer}");
         }
-
+    
         $localSub = $invoice->subscription
             ? Subscription::where('stripeSubscriptionId', $invoice->subscription)->first()
             : null;
-
+    
+        // Map Stripe invoice status → our internal status enum
+        $status = match ($invoice->status) {
+            'paid'          => 'paid',
+            'uncollectible' => 'failed',
+            'void'          => 'failed',
+            default         => 'pending', // open, draft
+        };
+    
+        // Build a description that surfaces failure reason if any
+        $description = $invoice->lines->data[0]->description ?? 'Subscription';
+        if ($status === 'failed' && !empty($invoice->last_finalization_error->message)) {
+            $description .= ' — ' . $invoice->last_finalization_error->message;
+        }
+    
         return Payment::updateOrCreate(
             ['stripeInvoiceId' => $invoice->id],
             [
                 'userId'                => $user->id,
                 'subscriptionId'        => $localSub?->id,
-                'stripePaymentIntentId' => $invoice->payment_intent,
-                'amount'                => $invoice->amount_paid / 100,
+                'stripePaymentIntentId' => is_string($invoice->payment_intent)
+                    ? $invoice->payment_intent
+                    : ($invoice->payment_intent?->id ?? null),
+                'amount'                => $invoice->amount_paid > 0
+                    ? $invoice->amount_paid / 100
+                    : $invoice->amount_due / 100,
                 'currency'              => strtoupper($invoice->currency),
-                'status'                => $invoice->status === 'paid' ? 'paid' : 'pending',
-                'paidAt'                => $invoice->status_transitions->paid_at
-                    ? Carbon::createFromTimestamp($invoice->status_transitions->paid_at)
+                'status'                => $status,
+                'paidAt'                => $invoice->status_transitions?->paid_at
+                    ? \Carbon\Carbon::createFromTimestamp($invoice->status_transitions->paid_at)
                     : null,
-                'description'           => $invoice->lines->data[0]->description ?? 'Subscription',
+                'description'           => $description,
                 'hostedInvoiceUrl'      => $invoice->hosted_invoice_url,
                 'invoicePdfUrl'         => $invoice->invoice_pdf,
             ]
@@ -279,6 +380,59 @@ class StripeService
         }
 
         return $plan->refresh();
+    }
+
+
+    public function syncAllPlansFromStripe(): array
+    {
+        $synced  = 0;
+        $skipped = 0;
+
+        // Fetch active and archived products separately — Stripe's SDK
+        // rejects null for the `active` boolean param.
+        $iterators = [
+            $this->stripe->products->all(['limit' => 100, 'active' => true ])->autoPagingIterator(),
+            $this->stripe->products->all(['limit' => 100, 'active' => false])->autoPagingIterator(),
+        ];
+
+        foreach ($iterators as $products) {
+            foreach ($products as $product) {
+                $planId = $product->metadata->planId
+                    ?? \App\Models\Plan::where('stripeProductId', $product->id)->value('id');
+
+                if (!$planId) { $skipped++; continue; }
+
+                $prices = $this->stripe->prices->all([
+                    'product' => $product->id,
+                    'active'  => true,
+                    'limit'   => 10,
+                ]);
+
+                $price = collect($prices->data)->first(fn ($p) => !empty($p->recurring));
+
+                $attrs = [
+                    'name'            => $product->name,
+                    'description'     => $product->description,
+                    'isActive'        => (bool) $product->active,
+                    'stripeProductId' => $product->id,
+                ];
+
+                if ($price) {
+                    $attrs += [
+                        'price'         => $price->unit_amount / 100,
+                        'currency'      => strtoupper($price->currency),
+                        'interval'      => $price->recurring->interval,
+                        'intervalCount' => $price->recurring->interval_count,
+                        'stripePriceId' => $price->id,
+                    ];
+                }
+
+                \App\Models\Plan::updateOrCreate(['id' => $planId], $attrs);
+                $synced++;
+            }
+        }
+
+        return ['synced' => $synced, 'skipped' => $skipped];
     }
 
     /**

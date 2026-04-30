@@ -20,6 +20,8 @@ use App\Http\Controllers\API\SubscriptionController;
 use App\Http\Controllers\API\PaymentController;
 use App\Http\Controllers\API\PlanController;
 use App\Http\Controllers\API\AdminPlanController;
+use App\Http\Controllers\API\FeatureController;
+use App\Http\Controllers\API\StripeWebhookController;
 
 use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsStudio;
@@ -36,6 +38,9 @@ Route::get('instructors',        [InstructorController::class, 'index']);
 
 Route::get('users/{id}/reviews', [ReviewController::class, 'forUser'])->whereNumber('id');
 Route::get('plans', [PlanController::class, 'index']);
+Route::post('stripe/webhook', [StripeWebhookController::class, 'handle']);
+
+
 
 Route::middleware('auth:sanctum')->group(function () {
   Route::post('/logout', [AuthController::class, 'logout']);
@@ -144,5 +149,10 @@ Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(func
   Route::post  ('plans',       [AdminPlanController::class, 'store']);
   Route::patch ('plans/{id}',  [AdminPlanController::class, 'update']);
   Route::delete('plans/{id}',  [AdminPlanController::class, 'destroy']);
+
+  Route::get('features', [FeatureController::class, 'index']);
+  Route::get  ('plans/{id}/features', [AdminPlanController::class, 'showFeatures']);
+  Route::patch('plans/{id}/features', [AdminPlanController::class, 'updateFeatures']);
+  Route::post('plans/sync-from-stripe', [AdminPlanController::class, 'syncFromStripe']);
 
 });

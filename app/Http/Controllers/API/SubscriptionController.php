@@ -15,18 +15,27 @@ class SubscriptionController extends Controller
     /** GET /api/subscription */
     public function show(Request $request)
     {
-        $sub = $request->user()->activeSubscription()->with('plan')->first();
+        $sub = $request->user()
+            ->activeSubscription()
+            ->with(['plan.planFeatures'])
+            ->first();
+
+        if ($sub && $sub->plan) {
+            $sub->plan->featureKeys = $sub->plan->planFeatures
+                ->pluck('key')->values()->toArray();
+        }
+
         return ApiResponse::success('Current subscription', ['subscription' => $sub]);
     }
 
-    /** POST /api/subscription/setup-intent — returns clientSecret for card collection */
+    /** POST /api/subscription/setup-intent */
     public function setupIntent(Request $request)
     {
         $intent = $this->stripe->createSetupIntent($request->user());
         return ApiResponse::success('SetupIntent created', $intent);
     }
 
-    /** POST /api/subscription/payment-method  { paymentMethodId } */
+    /** POST /api/subscription/payment-method */
     public function attachPaymentMethod(Request $request)
     {
         $request->validate(['paymentMethodId' => 'required|string']);
@@ -34,13 +43,21 @@ class SubscriptionController extends Controller
         return ApiResponse::success('Card saved');
     }
 
-    /** POST /api/subscription/change  { planId } */
+    /** POST /api/subscription/change  { planId, paymentMethodId? } */
     public function change(Request $request)
     {
-        $request->validate(['planId' => 'required|string|exists:plans,id']);
+        $request->validate([
+            'planId'          => 'required|string|exists:plans,id',
+            'paymentMethodId' => 'nullable|string',
+        ]);
 
         $user = $request->user();
         $plan = Plan::findOrFail($request->planId);
+
+        if ($request->paymentMethodId) {
+            $this->stripe->setDefaultPaymentMethod($user, $request->paymentMethodId);
+            $user->refresh();
+        }
 
         if (!$user->default_payment_method_id) {
             return ApiResponse::error('Add a payment method before subscribing.', [], 422);
@@ -48,9 +65,14 @@ class SubscriptionController extends Controller
 
         try {
             $sub = $this->stripe->subscribeOrSwap($user, $plan);
-            return ApiResponse::success('Plan updated', [
-                'subscription' => $sub->fresh(['plan']),
-            ]);
+            $sub->load(['plan.planFeatures']);
+
+            if ($sub->plan) {
+                $sub->plan->featureKeys = $sub->plan->planFeatures
+                    ->pluck('key')->values()->toArray();
+            }
+
+            return ApiResponse::success('Plan updated', ['subscription' => $sub]);
         } catch (\Throwable $e) {
             report($e);
             return ApiResponse::error($e->getMessage(), [], 500);

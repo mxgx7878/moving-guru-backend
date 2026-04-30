@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Plan extends Model
 {
@@ -13,7 +14,8 @@ class Plan extends Model
     protected $fillable = [
         'id', 'name', 'description', 'price', 'currency',
         'interval', 'intervalCount', 'period',
-        'stripePriceId', 'features', 'isFeatured', 'isActive', 'sortOrder',
+        'stripePriceId', 'stripeProductId', 'features',
+        'isFeatured', 'isActive', 'sortOrder',
     ];
 
     protected $casts = [
@@ -25,5 +27,32 @@ class Plan extends Model
         'sortOrder'     => 'integer',
     ];
 
-    public function scopeActive($q) { return $q->where('isActive', true); }
+    /**
+     * belongsToMany features via plan_features pivot (uses featureId, not key).
+     */
+    public function planFeatures(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Feature::class,
+            'plan_features',
+            'planId',
+            'featureId',
+        );
+    }
+
+    /**
+     * Flat array of enabled feature keys — used by frontend gate.
+     */
+    public function getFeatureKeysAttribute(): array
+    {
+        if (!$this->relationLoaded('planFeatures')) {
+            $this->load('planFeatures');
+        }
+        return $this->planFeatures->pluck('key')->values()->toArray();
+    }
+
+    public function scopeActive($q)
+    {
+        return $q->where('isActive', true);
+    }
 }

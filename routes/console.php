@@ -19,3 +19,5 @@ Schedule::command('queue:work --stop-when-empty --max-time=50 --tries=3')
     ->everyMinute()
     ->withoutOverlapping()
     ->runInBackground();
+
+Schedule::command('subscriptions:renewal-reminders')->dailyAt('09:00');

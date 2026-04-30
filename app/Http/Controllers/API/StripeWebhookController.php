@@ -5,6 +5,8 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Subscription;
 use App\Models\User;
+use App\Notifications\PaymentFailedNotification;
+use App\Notifications\PaymentSucceededNotification;
 use App\Services\StripeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -31,11 +33,11 @@ class StripeWebhookController extends Controller
             match ($event->type) {
                 'customer.subscription.created',
                 'customer.subscription.updated',
-                'customer.subscription.deleted'   => $this->onSubscriptionChange($event->data->object),
+                'customer.subscription.deleted' => $this->onSubscriptionChange($event->data->object),
                 'invoice.paid',
-                'invoice.payment_succeeded'       => $this->onInvoicePaid($event->data->object),
-                'invoice.payment_failed'          => $this->onInvoiceFailed($event->data->object),
-                default                           => Log::info("Unhandled Stripe event: {$event->type}"),
+                'invoice.payment_succeeded'     => $this->onInvoicePaid($event->data->object),
+                'invoice.payment_failed'        => $this->onInvoiceFailed($event->data->object),
+                default                         => Log::info("Unhandled Stripe event: {$event->type}"),
             };
         } catch (\Throwable $e) {
             report($e);
@@ -55,17 +57,58 @@ class StripeWebhookController extends Controller
 
     protected function onInvoicePaid($invoice): void
     {
-        $this->stripe->recordPaymentFromInvoice($invoice);
+        // 1. Record payment in DB
+        try {
+            $payment = $this->stripe->recordPaymentFromInvoice($invoice);
+        } catch (\Throwable $e) {
+            Log::warning('recordPaymentFromInvoice failed', ['error' => $e->getMessage()]);
+            return;
+        }
+
+        // 2. Send payment confirmation email
+        $user = $payment->user;
+        if (!$user?->email) return;
+
+        try {
+            $user->notify(new PaymentSucceededNotification($payment));
+        } catch (\Throwable $e) {
+            Log::warning('PaymentSucceededNotification failed', [
+                'userId' => $user->id,
+                'error'  => $e->getMessage(),
+            ]);
+        }
     }
 
     protected function onInvoiceFailed($invoice): void
     {
-        $payment = $this->stripe->recordPaymentFromInvoice($invoice);
-        $payment->forceFill(['status' => 'failed'])->save();
+        // 1. Record payment as failed in DB
+        try {
+            $payment = $this->stripe->recordPaymentFromInvoice($invoice);
+            $payment->forceFill(['status' => 'failed'])->save();
+        } catch (\Throwable $e) {
+            Log::warning('recordPaymentFromInvoice (failed) error', ['error' => $e->getMessage()]);
+        }
 
+        // 2. Mark subscription as past_due
+        $sub = null;
         if ($invoice->subscription) {
-            Subscription::where('stripeSubscriptionId', $invoice->subscription)
-                ->update(['status' => 'past_due']);
+            $sub = Subscription::where('stripeSubscriptionId', $invoice->subscription)
+                ->with('plan')
+                ->first();
+            if ($sub) $sub->forceFill(['status' => 'past_due'])->save();
+        }
+
+        // 3. Send payment failed email
+        $user = User::where('stripe_customer_id', $invoice->customer)->first();
+        if (!$user?->email || !$sub) return;
+
+        try {
+            $user->notify(new PaymentFailedNotification($sub));
+        } catch (\Throwable $e) {
+            Log::warning('PaymentFailedNotification failed', [
+                'userId' => $user->id,
+                'error'  => $e->getMessage(),
+            ]);
         }
     }
 }

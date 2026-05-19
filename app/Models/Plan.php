@@ -14,17 +14,19 @@ class Plan extends Model
     protected $fillable = [
         'id', 'name', 'description', 'price', 'currency',
         'interval', 'intervalCount', 'period',
+        'trialPeriodDays',
         'stripePriceId', 'stripeProductId', 'features',
         'isFeatured', 'isActive', 'sortOrder',
     ];
 
     protected $casts = [
-        'price'         => 'decimal:2',
-        'features'      => 'array',
-        'isFeatured'    => 'boolean',
-        'isActive'      => 'boolean',
-        'intervalCount' => 'integer',
-        'sortOrder'     => 'integer',
+        'price'           => 'decimal:2',
+        'features'        => 'array',
+        'isFeatured'      => 'boolean',
+        'isActive'        => 'boolean',
+        'intervalCount'   => 'integer',
+        'trialPeriodDays' => 'integer',
+        'sortOrder'       => 'integer',
     ];
 
     /**
@@ -49,6 +51,14 @@ class Plan extends Model
             $this->load('planFeatures');
         }
         return $this->planFeatures->pluck('key')->values()->toArray();
+    }
+
+    /**
+     * Convenience — does this plan offer a free trial?
+     */
+    public function hasTrial(): bool
+    {
+        return (int) $this->trialPeriodDays > 0;
     }
 
     public function scopeActive($q)

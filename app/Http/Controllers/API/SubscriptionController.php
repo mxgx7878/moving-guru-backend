@@ -79,16 +79,36 @@ class SubscriptionController extends Controller
         }
     }
 
-    /** POST /api/subscription/cancel */
+    /**
+     * POST /api/subscription/cancel
+     *
+     * Two cancel modes — chosen by subscription state, not the caller:
+     *
+     *   • Status `trialing`  → immediate cancel. User has paid nothing yet,
+     *                          so there's no period to honour. Subscription
+     *                          ends now, status → cancelled.
+     *   • Status `active`    → cancel at period end. User has paid through
+     *                          currentPeriodEnd, so they keep access until
+     *                          that date. Can resume any time before then.
+     */
     public function cancel(Request $request)
     {
         $sub = $request->user()->activeSubscription;
         if (!$sub) return ApiResponse::error('No active subscription.', [], 404);
 
+        if ($sub->status === 'trialing') {
+            $this->stripe->cancelImmediately($sub);
+            return ApiResponse::success(
+                'Trial cancelled. Your subscription has ended.',
+                ['subscription' => $sub->fresh(['plan']), 'immediate' => true],
+            );
+        }
+
         $this->stripe->cancelAtPeriodEnd($sub);
-        return ApiResponse::success('Subscription will cancel at period end', [
-            'subscription' => $sub->fresh(['plan']),
-        ]);
+        return ApiResponse::success(
+            'Subscription will cancel at period end',
+            ['subscription' => $sub->fresh(['plan']), 'immediate' => false],
+        );
     }
 
     /** POST /api/subscription/resume */

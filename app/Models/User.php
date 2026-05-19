@@ -19,6 +19,7 @@ class User extends Authenticatable
         'status',
         'stripe_customer_id',
         'default_payment_method_id',
+        'has_used_trial',
         'is_verified',
         'approved_at',
         'approved_by',
@@ -34,6 +35,7 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'is_verified'       => 'boolean',
+        'has_used_trial'    => 'boolean',
         'approved_at'       => 'datetime',
         'suspended_at'      => 'datetime',
         'rejected_at'       => 'datetime',
@@ -83,4 +85,15 @@ class User extends Authenticatable
     public function isPending(): bool   { return $this->status === 'pending'; }
     public function isSuspended(): bool { return $this->status === 'suspended'; }
     public function isRejected(): bool  { return $this->status === 'rejected'; }
+
+    /**
+     * Trial eligibility — true if the user has never started a trial before.
+     * Used by StripeService::subscribeOrSwap() to decide whether to pass
+     * trial_period_days to Stripe. Flips to true the first time a
+     * subscription enters `trialing` status.
+     */
+    public function isEligibleForTrial(): bool
+    {
+        return ! (bool) $this->has_used_trial;
+    }
 }

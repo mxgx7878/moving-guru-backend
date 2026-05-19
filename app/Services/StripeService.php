@@ -6,6 +6,7 @@ use App\Models\Plan;
 use App\Models\Subscription;
 use App\Models\Payment;
 use App\Models\User;
+use App\Notifications\TrialStartedNotification;
 use Carbon\Carbon;
 use Stripe\Customer;
 use Stripe\Invoice as StripeInvoice;
@@ -71,7 +72,6 @@ class StripeService
     {
         $customerId = $this->getOrCreateCustomer($user);
 
-        // Attach if not already attached (safe: PaymentMethod is idempotent if already on customer)
         try {
             $this->stripe->paymentMethods->attach($paymentMethodId, ['customer' => $customerId]);
         } catch (\Throwable $e) {
@@ -87,9 +87,6 @@ class StripeService
 
     // ───────────────────────── Subscriptions ─────────────────────
 
-    /**
-     * Create OR switch a subscription. Single entry-point — controllers always call this.
-     */
     public function subscribeOrSwap(User $user, Plan $plan): Subscription
     {
         $customerId = $this->getOrCreateCustomer($user);
@@ -99,7 +96,7 @@ class StripeService
             return $this->swapPlan($existing, $plan);
         }
 
-        $stripeSub = $this->stripe->subscriptions->create([
+        $params = [
             'customer'         => $customerId,
             'items'            => [['price' => $plan->stripePriceId]],
             'payment_behavior' => 'default_incomplete',
@@ -109,7 +106,19 @@ class StripeService
             ],
             'expand'           => ['latest_invoice'],
             'metadata'         => ['userId' => $user->id, 'planId' => $plan->id],
-        ]);
+        ];
+
+        $trialDays = (int) ($plan->trialPeriodDays ?? 0);
+        $isTrial   = $trialDays > 0 && $user->isEligibleForTrial();
+
+        if ($isTrial) {
+            $params['trial_period_days'] = $trialDays;
+            $params['trial_settings'] = [
+                'end_behavior' => ['missing_payment_method' => 'create_invoice'],
+            ];
+        }
+
+        $stripeSub = $this->stripe->subscriptions->create($params);
 
         $this->payFirstInvoice($stripeSub, $user);
 
@@ -123,14 +132,21 @@ class StripeService
             throw new \RuntimeException($reason);
         }
 
-        return $this->upsertLocalSubscription($user, $plan, $stripeSub);
+        $local = $this->upsertLocalSubscription($user, $plan, $stripeSub);
+
+        if ($isTrial && $stripeSub->status === 'trialing') {
+            try {
+                $user->notify(new TrialStartedNotification($local));
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('TrialStartedNotification failed', [
+                    'userId' => $user->id, 'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $local;
     }
-    
-    /**
-     * Confirm the first invoice's PaymentIntent using the customer's default
-     * payment method. Catches Stripe card errors and rethrows with a clean
-     * message so the controller can return a clean 422.
-     */
+
     protected function payFirstInvoice(\Stripe\Subscription $sub, User $user): void
     {
         $invoice = $sub->latest_invoice;
@@ -172,25 +188,21 @@ class StripeService
             );
         }
     }
-    
-    /**
-     * Pull a human-readable reason out of a non-active subscription so we can
-     * tell the user exactly what went wrong.
-     */
+
     protected function extractFailureReason(StripeSubscription $sub): string
     {
         $pi = $sub->latest_invoice?->payment_intent ?? null;
-    
+
         if ($pi?->last_payment_error?->message) {
             return $pi->last_payment_error->message;
         }
-    
+
         return match ($sub->status) {
-            'incomplete'      => 'Payment could not be completed. Please try a different card.',
+            'incomplete'         => 'Payment could not be completed. Please try a different card.',
             'incomplete_expired' => 'Payment timed out. Please try subscribing again.',
-            'past_due'        => 'Payment failed. Please update your card and try again.',
-            'unpaid'          => 'Payment failed. Please update your card and try again.',
-            default           => "Subscription is in {$sub->status} state — please contact support.",
+            'past_due'           => 'Payment failed. Please update your card and try again.',
+            'unpaid'             => 'Payment failed. Please update your card and try again.',
+            default              => "Subscription is in {$sub->status} state — please contact support.",
         };
     }
 
@@ -209,6 +221,11 @@ class StripeService
         return $this->upsertLocalSubscription($local->user, $newPlan, $updated);
     }
 
+    /**
+     * Schedule cancellation at the end of the current billing period.
+     * User keeps access until currentPeriodEnd, then sub ends.
+     * Can be undone via resumeSubscription() any time before that date.
+     */
     public function cancelAtPeriodEnd(Subscription $local): Subscription
     {
         $this->stripe->subscriptions->update($local->stripeSubscriptionId, [
@@ -216,6 +233,28 @@ class StripeService
         ]);
 
         $local->forceFill(['cancelAtPeriodEnd' => true])->save();
+        return $local;
+    }
+
+    /**
+     * Cancel immediately — used for trialing subscriptions where no payment
+     * has been collected yet. Subscription ends right now in Stripe, local
+     * row is updated to status 'cancelled'. Cannot be resumed; user must
+     * subscribe fresh, and (per business rule) won't get another trial since
+     * `has_used_trial` is already set on their user record.
+     */
+    public function cancelImmediately(Subscription $local): Subscription
+    {
+        $stripeSub = $this->stripe->subscriptions->cancel($local->stripeSubscriptionId);
+
+        $local->forceFill([
+            'status'             => 'cancelled',
+            'cancelAtPeriodEnd'  => false,
+            'cancelledAt'        => $stripeSub->canceled_at
+                ? Carbon::createFromTimestamp($stripeSub->canceled_at)
+                : now(),
+        ])->save();
+
         return $local;
     }
 
@@ -229,7 +268,7 @@ class StripeService
         return $local;
     }
 
-    // ───────────────────────── Local sync helpers (used by webhook + flows) ──
+    // ───────────────────────── Local sync helpers ──
 
     public function upsertLocalSubscription(User $user, ?Plan $plan, StripeSubscription $sub): Subscription
     {
@@ -237,32 +276,47 @@ class StripeService
             ?? optional(Plan::where('stripePriceId', $sub->items->data[0]->price->id ?? null)->first())->id
             ?? $sub->metadata->planId
             ?? null;
-    
-        // Period now lives on the subscription_item (new Stripe billing API)
+
         $item          = $sub->items->data[0] ?? null;
         $periodStartTs = $item->current_period_start ?? $sub->current_period_start ?? null;
         $periodEndTs   = $item->current_period_end   ?? $sub->current_period_end   ?? null;
-    
-        // Normalise Stripe statuses → local enum.
-        // Stripe uses American "canceled"; our enum uses British "cancelled".
+
         $status = match ($sub->status) {
             'canceled' => 'cancelled',
             default    => $sub->status,
         };
-    
+
+        if ($status === 'trialing' && !$user->has_used_trial) {
+            $user->forceFill(['has_used_trial' => true])->save();
+        }
+
         return Subscription::updateOrCreate(
             ['stripeSubscriptionId' => $sub->id],
             [
                 'userId'             => $user->id,
                 'planId'             => $planId,
                 'status'             => $status,
-                'currentPeriodStart' => $periodStartTs ? \Carbon\Carbon::createFromTimestamp($periodStartTs) : null,
-                'currentPeriodEnd'   => $periodEndTs   ? \Carbon\Carbon::createFromTimestamp($periodEndTs)   : null,
+                'currentPeriodStart' => $periodStartTs ? Carbon::createFromTimestamp($periodStartTs) : null,
+                'currentPeriodEnd'   => $periodEndTs   ? Carbon::createFromTimestamp($periodEndTs)   : null,
                 'cancelAtPeriodEnd'  => (bool) $sub->cancel_at_period_end,
-                'cancelledAt'        => $sub->canceled_at ? \Carbon\Carbon::createFromTimestamp($sub->canceled_at) : null,
-                'trialEndsAt'        => $sub->trial_end   ? \Carbon\Carbon::createFromTimestamp($sub->trial_end)   : null,
+                'cancelledAt'        => $sub->canceled_at ? Carbon::createFromTimestamp($sub->canceled_at) : null,
+                'trialEndsAt'        => $sub->trial_end   ? Carbon::createFromTimestamp($sub->trial_end)   : null,
             ]
         );
+    }
+
+    protected function extractSubscriptionIdFromInvoice(StripeInvoice $invoice): ?string
+    {
+        if (!empty($invoice->subscription) && is_string($invoice->subscription)) {
+            return $invoice->subscription;
+        }
+
+        $parent = $invoice->parent ?? null;
+        if ($parent && ($parent->type ?? null) === 'subscription_details') {
+            return $parent->subscription_details->subscription ?? null;
+        }
+
+        return null;
     }
 
     public function recordPaymentFromInvoice(StripeInvoice $invoice): Payment
@@ -271,31 +325,31 @@ class StripeService
         if (!$user) {
             throw new \RuntimeException("No local user for Stripe customer {$invoice->customer}");
         }
-    
-        $localSub = $invoice->subscription
-            ? Subscription::where('stripeSubscriptionId', $invoice->subscription)->first()
+
+        $subscriptionId = $this->extractSubscriptionIdFromInvoice($invoice);
+
+        $localSub = $subscriptionId
+            ? Subscription::where('stripeSubscriptionId', $subscriptionId)->first()
             : null;
-    
-        // Map Stripe invoice status → our internal status enum
+
         $status = match ($invoice->status) {
             'paid'          => 'paid',
             'uncollectible' => 'failed',
             'void'          => 'failed',
-            default         => 'pending', // open, draft
+            default         => 'pending',
         };
-    
-        // Build a description that surfaces failure reason if any
+
         $description = $invoice->lines->data[0]->description ?? 'Subscription';
         if ($status === 'failed' && !empty($invoice->last_finalization_error->message)) {
             $description .= ' — ' . $invoice->last_finalization_error->message;
         }
-    
+
         return Payment::updateOrCreate(
             ['stripeInvoiceId' => $invoice->id],
             [
                 'userId'                => $user->id,
                 'subscriptionId'        => $localSub?->id,
-                'stripePaymentIntentId' => is_string($invoice->payment_intent)
+                'stripePaymentIntentId' => is_string($invoice->payment_intent ?? null)
                     ? $invoice->payment_intent
                     : ($invoice->payment_intent?->id ?? null),
                 'amount'                => $invoice->amount_paid > 0
@@ -304,7 +358,7 @@ class StripeService
                 'currency'              => strtoupper($invoice->currency),
                 'status'                => $status,
                 'paidAt'                => $invoice->status_transitions?->paid_at
-                    ? \Carbon\Carbon::createFromTimestamp($invoice->status_transitions->paid_at)
+                    ? Carbon::createFromTimestamp($invoice->status_transitions->paid_at)
                     : null,
                 'description'           => $description,
                 'hostedInvoiceUrl'      => $invoice->hosted_invoice_url,
@@ -322,7 +376,10 @@ class StripeService
         $product = $this->stripe->products->create([
             'name'        => $plan->name,
             'description' => $plan->description ?: null,
-            'metadata'    => ['planId' => $plan->id],
+            'metadata'    => [
+                'planId'          => $plan->id,
+                'trialPeriodDays' => (string) ($plan->trialPeriodDays ?? 0),
+            ],
         ]);
 
         $price = $this->createStripePrice($plan, $product->id);
@@ -335,32 +392,22 @@ class StripeService
         return $plan;
     }
 
-    /**
-     * Sync a plan's metadata + price to Stripe.
-     *
-     * - Always updates the Product (name, description, active flag).
-     * - If price/currency/interval/intervalCount changed since the last
-     *   sync, creates a new Stripe Price, archives the old one, and
-     *   points stripePriceId at the new one. Stripe Prices are immutable.
-     *
-     * Caller passes the plan AFTER mutating it; we detect changes by
-     * comparing the active Stripe Price with the plan's current values.
-     */
     public function syncPlanToStripe(\App\Models\Plan $plan): \App\Models\Plan
     {
         if (!$plan->stripeProductId) {
             return $this->createPlanInStripe($plan);
         }
 
-        // 1. Always sync product metadata
         $this->stripe->products->update($plan->stripeProductId, [
             'name'        => $plan->name,
             'description' => $plan->description ?: null,
             'active'      => (bool) $plan->isActive,
-            'metadata'    => ['planId' => $plan->id],
+            'metadata'    => [
+                'planId'          => $plan->id,
+                'trialPeriodDays' => (string) ($plan->trialPeriodDays ?? 0),
+            ],
         ]);
 
-        // 2. Decide whether the Price needs replacing
         $needsNewPrice = true;
         if ($plan->stripePriceId) {
             try {
@@ -378,13 +425,11 @@ class StripeService
         if ($needsNewPrice) {
             $newPrice = $this->createStripePrice($plan, $plan->stripeProductId);
 
-            // Archive the old price (Stripe doesn't allow delete; archived
-            // prices keep working for existing subscriptions).
             if ($plan->stripePriceId) {
                 try {
                     $this->stripe->prices->update($plan->stripePriceId, ['active' => false]);
                 } catch (\Throwable $e) {
-                    report($e); // best-effort
+                    report($e);
                 }
             }
 
@@ -400,8 +445,6 @@ class StripeService
         $synced  = 0;
         $skipped = 0;
 
-        // Fetch active and archived products separately — Stripe's SDK
-        // rejects null for the `active` boolean param.
         $iterators = [
             $this->stripe->products->all(['limit' => 100, 'active' => true ])->autoPagingIterator(),
             $this->stripe->products->all(['limit' => 100, 'active' => false])->autoPagingIterator(),
@@ -429,6 +472,10 @@ class StripeService
                     'stripeProductId' => $product->id,
                 ];
 
+                if (isset($product->metadata->trialPeriodDays)) {
+                    $attrs['trialPeriodDays'] = (int) $product->metadata->trialPeriodDays;
+                }
+
                 if ($price) {
                     $attrs += [
                         'price'         => $price->unit_amount / 100,
@@ -447,11 +494,6 @@ class StripeService
         return ['synced' => $synced, 'skipped' => $skipped];
     }
 
-    /**
-     * Soft-archive a plan in Stripe. Keeps the row in our DB (subscriptions
-     * still reference it) and flips `active=false` on both the Product and
-     * Price in Stripe so it can no longer be subscribed to.
-     */
     public function archivePlanInStripe(\App\Models\Plan $plan): void
     {
         if ($plan->stripePriceId) {

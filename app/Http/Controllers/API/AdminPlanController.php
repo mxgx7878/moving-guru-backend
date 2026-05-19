@@ -177,18 +177,19 @@ class AdminPlanController extends Controller
     {
         $req = $isCreate ? 'required' : 'sometimes';
         $rules = [
-            'name'          => "{$req}|string|max:64",
-            'description'   => 'nullable|string|max:255',
-            'price'         => "{$req}|numeric|min:0",
-            'currency'      => 'sometimes|string|size:3',
-            'interval'      => "{$req}|in:month,year",
-            'intervalCount' => "{$req}|integer|min:1|max:24",
-            'period'        => 'sometimes|nullable|string|max:16',
-            'features'      => 'sometimes|array',
-            'features.*'    => 'string|max:140',
-            'isFeatured'    => 'sometimes|boolean',
-            'isActive'      => 'sometimes|boolean',
-            'sortOrder'     => 'sometimes|integer|min:0|max:9999',
+            'name'            => "{$req}|string|max:64",
+            'description'     => 'nullable|string|max:255',
+            'price'           => "{$req}|numeric|min:0",
+            'currency'        => 'sometimes|string|size:3',
+            'interval'        => "{$req}|in:month,year",
+            'intervalCount'   => "{$req}|integer|min:1|max:24",
+            'trialPeriodDays' => 'sometimes|integer|min:0|max:365',
+            'period'          => 'sometimes|nullable|string|max:16',
+            'features'        => 'sometimes|array',
+            'features.*'      => 'string|max:140',
+            'isFeatured'      => 'sometimes|boolean',
+            'isActive'        => 'sometimes|boolean',
+            'sortOrder'       => 'sometimes|integer|min:0|max:9999',
         ];
 
         if ($isCreate) {
@@ -196,7 +197,8 @@ class AdminPlanController extends Controller
         }
 
         $validator = Validator::make($request->all(), $rules, [
-            'id.regex' => 'ID must be lowercase letters, numbers, hyphens or underscores.',
+            'id.regex'             => 'ID must be lowercase letters, numbers, hyphens or underscores.',
+            'trialPeriodDays.max'  => 'Trial period cannot exceed 365 days.',
         ]);
 
         if ($validator->fails()) {

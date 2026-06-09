@@ -22,6 +22,7 @@ use App\Http\Controllers\API\PlanController;
 use App\Http\Controllers\API\AdminPlanController;
 use App\Http\Controllers\API\FeatureController;
 use App\Http\Controllers\API\StripeWebhookController;
+use App\Http\Controllers\API\ConversationController;
 
 use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsStudio;
@@ -95,6 +96,12 @@ Route::middleware('auth:sanctum')->group(function () {
   // Payments
   Route::get  ('payments',              [PaymentController::class, 'index']);
   Route::get  ('payments/{id}/invoice', [PaymentController::class, 'invoice']);
+
+Route::get('/conversations',                 [ConversationController::class, 'index']);
+Route::post('/conversations',                [ConversationController::class, 'store']);
+Route::get('/conversations/{id}/messages',   [ConversationController::class, 'messages'])->whereNumber('id');
+Route::post('/conversations/{id}/messages',  [ConversationController::class, 'send'])->whereNumber('id');
+Route::patch('/conversations/{id}/read',     [ConversationController::class, 'markRead'])->whereNumber('id');
 
 });
 

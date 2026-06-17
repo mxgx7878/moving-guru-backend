@@ -23,6 +23,7 @@ use App\Http\Controllers\API\AdminPlanController;
 use App\Http\Controllers\API\FeatureController;
 use App\Http\Controllers\API\StripeWebhookController;
 use App\Http\Controllers\API\ConversationController;
+use App\Http\Controllers\API\ReportController;
 
 use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsStudio;
@@ -67,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
   Route::delete('applications/{id}', [JobListingController::class, 'withdraw'])->whereNumber('id');
   Route::get('me/instructors', [InstructorController::class, 'index']);
   Route::get('instructors/{id}',   [InstructorController::class, 'show'])->whereNumber('id');
+  Route::get('studios/{id}',   [InstructorController::class, 'show'])->whereNumber('id');
 
 
   Route::get('instructors/saved',  [InstructorController::class, 'saved'])
@@ -102,6 +104,8 @@ Route::post('/conversations',                [ConversationController::class, 'st
 Route::get('/conversations/{id}/messages',   [ConversationController::class, 'messages'])->whereNumber('id');
 Route::post('/conversations/{id}/messages',  [ConversationController::class, 'send'])->whereNumber('id');
 Route::patch('/conversations/{id}/read',     [ConversationController::class, 'markRead'])->whereNumber('id');
+
+Route::post('/reports', [ReportController::class, 'store']);
 
 });
 
@@ -161,5 +165,8 @@ Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(func
   Route::get  ('plans/{id}/features', [AdminPlanController::class, 'showFeatures']);
   Route::patch('plans/{id}/features', [AdminPlanController::class, 'updateFeatures']);
   Route::post('plans/sync-from-stripe', [AdminPlanController::class, 'syncFromStripe']);
+  Route::get('/reports',               [ReportController::class, 'index']);
+  Route::get('/reports/{id}',          [ReportController::class, 'show'])->whereNumber('id');
+  Route::patch('/reports/{id}/status', [ReportController::class, 'updateStatus'])->whereNumber('id');
 
 });

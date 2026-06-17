@@ -4,7 +4,6 @@ namespace App\Notifications;
 
 use App\Models\Subscription;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -13,7 +12,7 @@ use Illuminate\Notifications\Notification;
  * Fired by StripeService::subscribeOrSwap() right after the local row is
  * created. Tells the user when the trial ends and what'll be charged after.
  */
-class TrialStartedNotification extends Notification implements ShouldQueue
+class TrialStartedNotification extends Notification
 {
     use Queueable;
 

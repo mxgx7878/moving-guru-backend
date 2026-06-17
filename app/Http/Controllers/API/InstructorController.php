@@ -70,11 +70,19 @@ public function index(Request $request)
         }
 
         if ($discipline = $request->get('discipline')) {
-            $q->whereJsonContains('disciplines', $discipline);
+            $discipline = trim((string) $discipline);
+            $q->where(function ($sub) use ($discipline) {
+                $sub->whereJsonContains('disciplines', $discipline)
+                    ->orWhereRaw('LOWER(JSON_UNQUOTE(JSON_EXTRACT(disciplines, "$"))) LIKE ?', ["%" . strtolower($discipline) . "%"]);
+            });
         }
 
         if ($openTo = $request->get('openTo')) {
-            $q->whereJsonContains('openTo', $openTo);
+            $openTo = trim((string) $openTo);
+            $q->where(function ($sub) use ($openTo) {
+                $sub->whereJsonContains('openTo', $openTo)
+                    ->orWhereRaw('LOWER(JSON_UNQUOTE(JSON_EXTRACT(openTo, "$"))) LIKE ?', ["%" . strtolower($openTo) . "%"]);
+            });
         }
 
         foreach (['country', 'city', 'suburb'] as $part) {
@@ -154,24 +162,24 @@ public function index(Request $request)
      */
     public function show(Request $request, $id)
     {
-        $instructor = User::where('role', 'instructor')
+        // Allow fetching either an instructor or a studio profile
+        $profileUser = User::whereIn('role', ['instructor', 'studio'])
             ->with('detail')
             ->findOrFail($id);
 
         $viewer = $request->user();
 
-        log::debug('Instructor profile viewed', [
-            'instructor_id' => $instructor->id,
-            'viewer_id'     => $viewer?->id,
+        Log::debug('Profile viewed', [
+            'viewed_user_id' => $profileUser->id,
+            'viewer_id'      => $viewer?->id,
         ]);
 
         // Record profile view — skip when self-viewing.
-        if ($viewer && $viewer->id !== $instructor->id) {
-            // Wrap in try so a transient DB hiccup doesn't break the fetch.
+        if ($viewer && $viewer->id !== $profileUser->id) {
             try {
                 ProfileView::create([
                     'viewer_id'      => $viewer->id,
-                    'viewed_user_id' => $instructor->id,
+                    'viewed_user_id' => $profileUser->id,
                     'viewed_at'      => now(),
                 ]);
             } catch (\Throwable $e) {
@@ -179,15 +187,16 @@ public function index(Request $request)
             }
         }
 
-        // Attach is_saved for studio viewers
-        if ($viewer && $viewer->role === 'studio') {
-            $instructor->is_saved = SavedInstructor::where('studio_id', $viewer->id)
-                ->where('instructor_id', $instructor->id)
+        // Attach is_saved for studio viewers only when the viewed user is an instructor
+        $profileUser->is_saved = false;
+        if ($viewer && $viewer->role === 'studio' && $profileUser->role === 'instructor') {
+            $profileUser->is_saved = SavedInstructor::where('studio_id', $viewer->id)
+                ->where('instructor_id', $profileUser->id)
                 ->exists();
         }
 
-        return ApiResponse::success('Instructor fetched', [
-            'instructor' => $instructor,
+        return ApiResponse::success('Profile fetched', [
+            'user' => $profileUser,
         ]);
     }
 

@@ -50,7 +50,7 @@ class AuthController extends Controller
             'social_links' => 'nullable|array',
 
             // Instructor
-            'age' => 'nullable|integer|min:18|max:100',
+            'age' => 'nullable|required_if:role,instructor|integer|min:16|max:100',
             'pronouns' => 'nullable|string',
             'studio' => 'nullable|string',
             'countryFrom' => 'nullable|string',

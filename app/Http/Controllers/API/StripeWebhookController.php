@@ -38,8 +38,7 @@ class StripeWebhookController extends Controller
                 'customer.subscription.updated',
                 'customer.subscription.deleted'        => $this->onSubscriptionChange($event->data->object),
                 'customer.subscription.trial_will_end' => $this->onTrialWillEnd($event->data->object),
-                'invoice.paid',
-                'invoice.payment_succeeded'            => $this->onInvoicePaid($event->data->object),
+                'invoice.paid'            => $this->onInvoicePaid($event->data->object),
                 'invoice.payment_failed'               => $this->onInvoiceFailed($event->data->object),
                 default                                => Log::info("Unhandled Stripe event: {$event->type}"),
             };
@@ -148,6 +147,7 @@ class StripeWebhookController extends Controller
         }
 
         try {
+            Log::info('Sending PaymentSucceededNotification', ['user' => $user, 'payment' => $payment]);
             $user->notify(new PaymentSucceededNotification($payment));
         } catch (\Throwable $e) {
             Log::warning('PaymentSucceededNotification failed', [
@@ -182,6 +182,7 @@ class StripeWebhookController extends Controller
         if (!$user?->email || !$sub) return;
 
         try {
+            Log::info('Sending PaymentFailedNotification', ['user' => $user, 'subscription' => $sub, 'reason' => $reason]);
             $user->notify(new PaymentFailedNotification($sub, $reason));
         } catch (\Throwable $e) {
             Log::warning('PaymentFailedNotification failed', [

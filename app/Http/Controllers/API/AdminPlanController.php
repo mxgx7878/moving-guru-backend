@@ -44,6 +44,7 @@ class AdminPlanController extends Controller
         try {
             $plan = Plan::create($data);
             $this->stripe->createPlanInStripe($plan);
+            $this->stripe->syncPlanCoupon($plan); 
 
             // Optionally enable specific features at create time
             if ($request->has('featureIds')) {
@@ -73,6 +74,8 @@ class AdminPlanController extends Controller
         try {
             $plan->update($data);
             $this->stripe->syncPlanToStripe($plan);
+            $this->stripe->syncPlanCoupon($plan);                       // ← add
+            $this->stripe->applyPlanDiscountToActiveSubscribers($plan); // ← add (existing subscribers ko bhi discount lagega/hatega)
             return ApiResponse::success('Plan updated', ['plan' => $plan->fresh()]);
         } catch (\Throwable $e) {
             report($e);
@@ -181,6 +184,8 @@ class AdminPlanController extends Controller
             'description'     => 'nullable|string|max:255',
             'price'           => "{$req}|numeric|min:0",
             'currency'        => 'sometimes|string|size:3',
+            'discountType'    => 'sometimes|nullable|in:percent,fixed',
+            'discountValue'   => 'sometimes|nullable|numeric|min:0',
             'interval'        => "{$req}|in:month,year",
             'intervalCount'   => "{$req}|integer|min:1|max:24",
             'trialPeriodDays' => 'sometimes|integer|min:0|max:365',
@@ -190,6 +195,8 @@ class AdminPlanController extends Controller
             'isFeatured'      => 'sometimes|boolean',
             'isActive'        => 'sometimes|boolean',
             'sortOrder'       => 'sometimes|integer|min:0|max:9999',
+             'discountDuration' => 'sometimes|nullable|in:once,repeating,forever',
+            'discountMonths'   => 'required_if:discountDuration,repeating|nullable|integer|min:1|max:36',
         ];
 
         if ($isCreate) {
@@ -201,11 +208,34 @@ class AdminPlanController extends Controller
             'trialPeriodDays.max'  => 'Trial period cannot exceed 365 days.',
         ]);
 
+        // Cross-field discount checks.
+        $validator->after(function ($v) use ($request) {
+            $type  = $request->input('discountType');
+            $value = (float) $request->input('discountValue', 0);
+
+            if ($type === 'percent' && $value > 100) {
+                $v->errors()->add('discountValue', 'Percent discount cannot exceed 100.');
+            }
+            if ($type === 'fixed' && $request->filled('price') && $value > (float) $request->input('price')) {
+                $v->errors()->add('discountValue', 'Fixed discount cannot exceed the price.');
+            }
+        });
+
         if ($validator->fails()) {
             return ApiResponse::error('Validation failed', $validator->errors(), 422);
         }
 
         $data = $validator->validated();
+
+        // No value (or 0) → no discount at all. Clears type too.
+        if (!isset($data['discountValue']) || (float) $data['discountValue'] <= 0) {
+            $data['discountType']  = null;
+            $data['discountValue'] = null;
+            $data['discountDuration'] = null;
+            $data['discountMonths']   = null;
+        } elseif (($data['discountDuration'] ?? null) !== 'repeating') {
+            $data['discountMonths'] = null;   // months sirf repeating ke liye
+        }
 
         if (empty($data['period']) && (isset($data['interval']) || isset($data['intervalCount']))) {
             $interval = $data['interval']      ?? 'month';

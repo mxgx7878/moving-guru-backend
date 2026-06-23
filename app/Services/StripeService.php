@@ -87,14 +87,18 @@ class StripeService
 
     // ───────────────────────── Subscriptions ─────────────────────
 
-    public function subscribeOrSwap(User $user, Plan $plan): Subscription
+    public function subscribeOrSwap(User $user, Plan $plan, array $discounts): Subscription
     {
+
+
         $customerId = $this->getOrCreateCustomer($user);
         $existing   = $user->activeSubscription;
+
 
         if ($existing && $existing->stripeSubscriptionId) {
             return $this->swapPlan($existing, $plan);
         }
+
 
         $params = [
             'customer'         => $customerId,
@@ -108,8 +112,15 @@ class StripeService
             'metadata'         => ['userId' => $user->id, 'planId' => $plan->id],
         ];
 
+        if (!empty($discounts)) {
+            $params['discounts'] = $discounts;   // ← FIRST invoice discounted
+        }
+
+
         $trialDays = (int) ($plan->trialPeriodDays ?? 0);
         $isTrial   = $trialDays > 0 && $user->isEligibleForTrial();
+
+
 
         if ($isTrial) {
             $params['trial_period_days'] = $trialDays;
@@ -119,6 +130,7 @@ class StripeService
         }
 
         $stripeSub = $this->stripe->subscriptions->create($params);
+
 
         $this->payFirstInvoice($stripeSub, $user);
 
@@ -150,6 +162,7 @@ class StripeService
     protected function payFirstInvoice(\Stripe\Subscription $sub, User $user): void
     {
         $invoice = $sub->latest_invoice;
+
 
         if (!$invoice) {
             \Illuminate\Support\Facades\Log::warning('No invoice on new subscription', ['sub' => $sub->id]);
@@ -206,7 +219,7 @@ class StripeService
         };
     }
 
-    protected function swapPlan(Subscription $local, Plan $newPlan): Subscription
+    protected function swapPlan(Subscription $local, Plan $newPlan , array $discounts = []): Subscription
     {
         $stripeSub = $this->stripe->subscriptions->retrieve($local->stripeSubscriptionId);
         $itemId    = $stripeSub->items->data[0]->id;
@@ -216,6 +229,7 @@ class StripeService
             'proration_behavior'   => 'create_prorations',
             'items'                => [['id' => $itemId, 'price' => $newPlan->stripePriceId]],
             'metadata'             => array_merge((array) $stripeSub->metadata, ['planId' => $newPlan->id]),
+            'discounts'            => !empty($discounts) ? $discounts : '',
         ]);
 
         return $this->upsertLocalSubscription($local->user, $newPlan, $updated);
@@ -440,6 +454,92 @@ class StripeService
     }
 
 
+     public function syncPlanCoupon(Plan $plan): void
+    {
+        // No discount → drop any existing coupon.
+        if (!$plan->hasDiscount) {
+            if ($plan->stripeCouponId) {
+                try { $this->stripe->coupons->delete($plan->stripeCouponId); }
+                catch (\Throwable $e) { report($e); }
+                $plan->forceFill(['stripeCouponId' => null])->save();
+            }
+            return;
+        }
+
+        $params = [
+            'duration' => in_array($plan->discountDuration, ['once', 'repeating', 'forever'], true)
+                ? $plan->discountDuration
+                : 'forever',
+            'name'     => substr($plan->name . ' discount', 0, 40),
+            'metadata' => ['planId' => $plan->id],
+        ];
+
+        if ($params['duration'] === 'repeating') {
+            $params['duration_in_months'] = (int) ($plan->discountMonths ?: 1);
+        }
+
+        if ($plan->discountType === 'percent') {
+            $params['percent_off'] = round((float) $plan->discountValue, 2);
+        } else {
+            $params['amount_off'] = (int) round((float) $plan->discountValue * 100);
+            $params['currency']   = strtolower($plan->currency);
+        }
+
+        $old = $plan->stripeCouponId;
+
+        try {
+            $coupon = $this->stripe->coupons->create($params);
+            $plan->forceFill(['stripeCouponId' => $coupon->id])->save();
+        } catch (\Throwable $e) {
+            report($e);
+            return; // keep old coupon if create failed
+        }
+
+        if ($old) {
+            try { $this->stripe->coupons->delete($old); }
+            catch (\Throwable $e) { report($e); }
+        }
+    }
+
+    /**
+     * Attach (or remove) the plan's coupon on a single Stripe subscription.
+     */
+    public function syncSubscriptionDiscount(Subscription $sub, ?Plan $plan = null): void
+    {
+        if (!$sub->stripeSubscriptionId) return;
+        $plan = $plan ?: $sub->plan;
+        if (!$plan) return;
+
+        try {
+            if ($plan->hasDiscount && $plan->stripeCouponId) {
+                $this->stripe->subscriptions->update($sub->stripeSubscriptionId, [
+                    'discounts' => [['coupon' => $plan->stripeCouponId]],
+                ]);
+            } else {
+                // Empty string clears all discounts on the subscription.
+                $this->stripe->subscriptions->update($sub->stripeSubscriptionId, [
+                    'discounts' => '',
+                ]);
+            }
+        } catch (\Throwable $e) {
+            report($e); // e.g. deleteDiscount when none exists — harmless
+        }
+    }
+
+    /**
+     * Apply/refresh the plan discount across all live subscribers of a plan.
+     * Called after an admin edits a plan's discount.
+     */
+    public function applyPlanDiscountToActiveSubscribers(Plan $plan): void
+    {
+        Subscription::where('planId', $plan->id)
+            ->whereIn('status', ['active', 'trialing', 'past_due'])
+            ->whereNotNull('stripeSubscriptionId')
+            ->get()
+            ->each(fn (Subscription $s) => $this->syncSubscriptionDiscount($s, $plan));
+    }
+
+
     public function syncAllPlansFromStripe(): array
     {
         $synced  = 0;
@@ -520,6 +620,87 @@ class StripeService
                 'interval_count' => (int) $plan->intervalCount,
             ],
             'metadata'    => ['planId' => $plan->id],
+        ]);
+    }
+
+      public function createPromoCodeInStripe(\App\Models\PromoCode $pc): void
+    {
+        $couponParams = [
+            'duration' => $pc->duration ?: 'once',
+            'name'     => substr('Promo ' . $pc->code, 0, 40),
+            'metadata' => ['promoCode' => $pc->code],
+        ];
+        if ($pc->duration === 'repeating') {
+            $couponParams['duration_in_months'] = (int) ($pc->durationInMonths ?: 1);
+        }
+        if ($pc->discountType === 'percent') {
+            $couponParams['percent_off'] = round((float) $pc->discountValue, 2);
+        } else {
+            $couponParams['amount_off'] = (int) round((float) $pc->discountValue * 100);
+            $couponParams['currency']   = strtolower($pc->currency ?: 'usd');
+        }
+
+        $coupon = $this->stripe->coupons->create($couponParams);
+
+        $promoParams = [
+            'promotion' => ['type' => 'coupon', 'coupon' => $coupon->id],
+            'code'     => $pc->code,
+            'active'   => (bool) $pc->isActive,
+            'metadata' => ['promoCodeId' => (string) $pc->id],
+        ];
+        if ($pc->maxRedemptions) $promoParams['max_redemptions'] = (int) $pc->maxRedemptions;
+        if ($pc->expiresAt)      $promoParams['expires_at']      = $pc->expiresAt->timestamp;
+
+        $promo = $this->stripe->promotionCodes->create($promoParams);
+
+        $pc->forceFill([
+            'stripeCouponId'        => $coupon->id,
+            'stripePromotionCodeId' => $promo->id,
+        ])->save();
+    }
+
+    /** Toggle a promo code active/inactive in Stripe (the only mutable field). */
+    public function setPromoCodeActiveInStripe(\App\Models\PromoCode $pc): void
+    {
+        if (!$pc->stripePromotionCodeId) return;
+        try {
+            $this->stripe->promotionCodes->update($pc->stripePromotionCodeId, [
+                'active' => (bool) $pc->isActive,
+            ]);
+        } catch (\Throwable $e) { report($e); }
+    }
+
+    public function archivePromoCodeInStripe(\App\Models\PromoCode $pc): void
+    {
+        // Promo codes can't be deleted — deactivate. The coupon can be deleted.
+        if ($pc->stripePromotionCodeId) {
+            try {
+                $this->stripe->promotionCodes->update($pc->stripePromotionCodeId, ['active' => false]);
+            } catch (\Throwable $e) { report($e); }
+        }
+        if ($pc->stripeCouponId) {
+            try { $this->stripe->coupons->delete($pc->stripeCouponId); }
+            catch (\Throwable $e) { report($e); }
+        }
+    }
+
+   public function applyPromoToSubscription(Subscription $sub, \App\Models\PromoCode $pc): void
+    {
+        if (!$sub->stripeSubscriptionId) return;
+
+        $discounts = [];
+
+        // Keep the plan's own discount...
+        $plan = $sub->plan;
+        if ($plan && $plan->hasDiscount && $plan->stripeCouponId) {
+            $discounts[] = ['coupon' => $plan->stripeCouponId];
+        }
+
+        // ...then stack the promo on top.
+        $discounts[] = ['promotion_code' => $pc->stripePromotionCodeId];
+
+        $this->stripe->subscriptions->update($sub->stripeSubscriptionId, [
+            'discounts' => $discounts,
         ]);
     }
 }

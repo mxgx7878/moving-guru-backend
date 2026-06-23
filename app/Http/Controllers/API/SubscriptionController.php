@@ -5,12 +5,13 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
 use App\Services\StripeService;
+use App\Services\PromoCodeService;
 use App\Helpers\ApiResponse;
 use Illuminate\Http\Request;
 
 class SubscriptionController extends Controller
 {
-    public function __construct(protected StripeService $stripe) {}
+    public function __construct(protected StripeService $stripe,protected PromoCodeService $promo,) {}
 
     /** GET /api/subscription */
     public function show(Request $request)
@@ -44,11 +45,12 @@ class SubscriptionController extends Controller
     }
 
     /** POST /api/subscription/change  { planId, paymentMethodId? } */
-    public function change(Request $request)
+ public function change(Request $request)
     {
         $request->validate([
             'planId'          => 'required|string|exists:plans,id',
             'paymentMethodId' => 'nullable|string',
+            'promoCode'       => 'nullable|string|max:64',
         ]);
 
         $user = $request->user();
@@ -63,10 +65,43 @@ class SubscriptionController extends Controller
             return ApiResponse::error('Add a payment method before subscribing.', [], 422);
         }
 
-        try {
-            $sub = $this->stripe->subscribeOrSwap($user, $plan);
-            $sub->load(['plan.planFeatures']);
+        // Pre-validate the promo before creating the subscription.
+        $pc = null;
+        if ($request->filled('promoCode')) {
+            // if ($plan->hasDiscount) {
+            //     return ApiResponse::error(
+            //         'This plan already has a discount, so a promo code can’t be applied.',
+            //         ['promoCode' => ['Promo codes are not allowed on discounted plans.']],
+            //         422,
+            //     );
+            // }
+            try {
+                $pc = $this->promo->validateForUser($user, $request->promoCode, $plan);
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                return ApiResponse::error(
+                    $e->validator->errors()->first('promoCode') ?: 'Invalid promo code.',
+                    $e->errors(), 422,
+                );
+            }
+        }
 
+         $discounts = [];
+        if ($plan->hasDiscount && $plan->stripeCouponId) {
+            $discounts[] = ['coupon' => $plan->stripeCouponId];
+        }
+        if ($pc && $pc->stripePromotionCodeId) {
+            $discounts[] = ['promotion_code' => $pc->stripePromotionCodeId];
+        }
+
+
+        try {
+            $sub = $this->stripe->subscribeOrSwap($user, $plan, $discounts);
+
+            if ($pc) {
+                $this->promo->recordRedemption($user, $pc, $sub);   // sirf record, discount already applied
+            }
+
+            $sub->load(['plan.planFeatures']);
             if ($sub->plan) {
                 $sub->plan->featureKeys = $sub->plan->planFeatures
                     ->pluck('key')->values()->toArray();

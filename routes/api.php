@@ -24,6 +24,7 @@ use App\Http\Controllers\API\FeatureController;
 use App\Http\Controllers\API\StripeWebhookController;
 use App\Http\Controllers\API\ConversationController;
 use App\Http\Controllers\API\ReportController;
+use App\Http\Controllers\API\PromoCodeController;
 
 use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsStudio;
@@ -106,6 +107,7 @@ Route::post('/conversations/{id}/messages',  [ConversationController::class, 'se
 Route::patch('/conversations/{id}/read',     [ConversationController::class, 'markRead'])->whereNumber('id');
 
 Route::post('/reports', [ReportController::class, 'store']);
+Route::post('promo-codes/validate', [PromoCodeController::class, 'validateCode']);
 
 });
 
@@ -168,5 +170,10 @@ Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(func
   Route::get('/reports',               [ReportController::class, 'index']);
   Route::get('/reports/{id}',          [ReportController::class, 'show'])->whereNumber('id');
   Route::patch('/reports/{id}/status', [ReportController::class, 'updateStatus'])->whereNumber('id');
+
+  Route::get   ('promo-codes',      [PromoCodeController::class, 'index']);
+  Route::post  ('promo-codes',      [PromoCodeController::class, 'store']);
+  Route::patch ('promo-codes/{id}', [PromoCodeController::class, 'update'])->whereNumber('id');
+  Route::delete('promo-codes/{id}', [PromoCodeController::class, 'destroy'])->whereNumber('id');
 
 });

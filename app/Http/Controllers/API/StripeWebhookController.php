@@ -30,7 +30,7 @@ class StripeWebhookController extends Controller
             return response('Invalid signature', 400);
         }
 
-        Log::info('Stripe webhook received', ['type' => $event->type, 'id' => $event->id]);
+        // Log::info('Stripe webhook received', ['type' => $event->type, 'id' => $event->id]);
 
         try {
             match ($event->type) {
@@ -81,31 +81,13 @@ class StripeWebhookController extends Controller
         $this->stripe->upsertLocalSubscription($user, null, $sub);
     }
 
-    protected function onTrialWillEnd($sub): void
+ protected function onTrialWillEnd($sub): void
     {
+        // Trial-ending reminder email intentionally disabled.
+        // Sirf local subscription sync rakhte hain.
         $user = User::where('stripe_customer_id', $sub->customer)->first();
-        if (!$user?->email) {
-            Log::info('trial_will_end: no user or email', ['customer' => $sub->customer]);
-            return;
-        }
-
-        $this->stripe->upsertLocalSubscription($user, null, $sub);
-
-        $local = Subscription::with('plan')
-            ->where('stripeSubscriptionId', $sub->id)
-            ->first();
-
-        if (!$local) {
-            Log::warning('trial_will_end: local sub not found after upsert', ['sub' => $sub->id]);
-            return;
-        }
-
-        try {
-            $user->notify(new TrialEndingNotification($local));
-        } catch (\Throwable $e) {
-            Log::warning('TrialEndingNotification failed', [
-                'userId' => $user->id, 'error' => $e->getMessage(),
-            ]);
+        if ($user) {
+            $this->stripe->upsertLocalSubscription($user, null, $sub);
         }
     }
 

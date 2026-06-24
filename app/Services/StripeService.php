@@ -146,8 +146,11 @@ class StripeService
 
         $local = $this->upsertLocalSubscription($user, $plan, $stripeSub);
 
+
+
         if ($isTrial && $stripeSub->status === 'trialing') {
             try {
+                \Illuminate\Support\Facades\Log::info('Sending TrialStartedNotification', ['user' => $user, 'subscription' => $local]);
                 $user->notify(new TrialStartedNotification($local));
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning('TrialStartedNotification failed', [
@@ -702,5 +705,64 @@ class StripeService
         $this->stripe->subscriptions->update($sub->stripeSubscriptionId, [
             'discounts' => $discounts,
         ]);
+    }
+
+ public function recurringChargeAfterDiscounts(Subscription $local, ?Plan $plan = null): ?float
+    {
+        $plan = $plan ?: $local->plan;
+        if (!$plan) {
+            \Log::info('[CHARGE-DEBUG] no plan, returning null');
+            return null;
+        }
+
+        $amount = (float) $plan->price;   // start from list price (60.00)
+
+        if (!$local->stripeSubscriptionId) {
+            \Log::info('[CHARGE-DEBUG] no stripe sub id, returning plan price', ['amount' => $amount]);
+            return round($amount, 2);
+        }
+
+        try {
+            $sub = $this->stripe->subscriptions->retrieve($local->stripeSubscriptionId, [
+                'expand' => ['discounts'],
+            ]);
+
+
+ foreach (($sub->discounts ?? []) as $discount) {
+                // New Stripe API: coupon id sits at discount.source.coupon (a string).
+                $couponId = $discount->source->coupon
+                    ?? $discount->coupon            // older shape fallback
+                    ?? null;
+
+                if (!$couponId) continue;
+
+                // Retrieve the coupon to read its percent_off / amount_off.
+                try {
+                    $coupon = is_string($couponId)
+                        ? $this->stripe->coupons->retrieve($couponId)
+                        : $couponId;
+                } catch (\Throwable $e) {
+                    \Log::warning('[CHARGE-DEBUG] coupon retrieve failed', [
+                        'couponId' => $couponId, 'error' => $e->getMessage(),
+                    ]);
+                    continue;
+                }
+
+                if (!empty($coupon->percent_off)) {
+                    $amount -= $amount * ((float) $coupon->percent_off / 100);
+                } elseif (!empty($coupon->amount_off)) {
+                    $amount -= ((float) $coupon->amount_off) / 100;
+                }
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('[CHARGE-DEBUG] FAILED', [
+                'sub'   => $local->stripeSubscriptionId,
+                'error' => $e->getMessage(),
+            ]);
+            return (float) ($plan->discountedPrice ?? $plan->price);
+        }
+
+        $final = round(max(0, $amount), 2);
+        return $final;
     }
 }

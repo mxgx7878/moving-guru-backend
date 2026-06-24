@@ -27,11 +27,14 @@ class TrialStartedNotification extends Notification
     {
         $name      = explode(' ', $notifiable->name ?? $notifiable->studio_name ?? 'there')[0];
         $planName  = $this->subscription->plan?->name ?? 'Moving Guru';
-        $amount    = number_format((float) (
-            $this->subscription->plan?->discountedPrice
-            ?? $this->subscription->plan?->price
-            ?? 0
-        ), 2);
+$stripe = app(\App\Services\StripeService::class);
+        $real   = $stripe->recurringChargeAfterDiscounts($this->subscription);
+
+        $amount = number_format(
+            $real ?? (float) ($this->subscription->plan?->discountedPrice
+                              ?? $this->subscription->plan?->price ?? 0),
+            2
+        );
         $currency  = strtoupper($this->subscription->plan?->currency ?? 'USD');
         $trialEnds = $this->subscription->trialEndsAt?->format('d M Y') ?? 'shortly';
         $manageUrl = rtrim(config('app.frontend_url', config('app.url')), '/')

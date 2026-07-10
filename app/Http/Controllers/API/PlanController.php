@@ -10,7 +10,7 @@ class PlanController extends Controller
 {
     public function index()
     {
-        $plans = Plan::active()->orderBy('sortOrder')->get();
+        $plans = Plan::with('planFeatures')->active()->orderBy('sortOrder')->get();
         return ApiResponse::success('Plans loaded', ['plans' => $plans]);
     }
 }

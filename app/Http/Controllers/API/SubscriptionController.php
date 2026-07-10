@@ -45,7 +45,7 @@ class SubscriptionController extends Controller
     }
 
     /** POST /api/subscription/change  { planId, paymentMethodId? } */
- public function change(Request $request)
+    public function change(Request $request)
     {
         $request->validate([
             'planId'          => 'required|string|exists:plans,id',

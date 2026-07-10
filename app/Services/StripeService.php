@@ -96,7 +96,7 @@ class StripeService
 
 
         if ($existing && $existing->stripeSubscriptionId) {
-            return $this->swapPlan($existing, $plan);
+            return $this->swapPlan($existing, $plan, $discounts);
         }
 
 
@@ -222,18 +222,52 @@ class StripeService
         };
     }
 
-    protected function swapPlan(Subscription $local, Plan $newPlan , array $discounts = []): Subscription
+    protected function swapPlan(Subscription $local, Plan $newPlan, array $discounts = []): Subscription
     {
         $stripeSub = $this->stripe->subscriptions->retrieve($local->stripeSubscriptionId);
         $itemId    = $stripeSub->items->data[0]->id;
 
-        $updated = $this->stripe->subscriptions->update($local->stripeSubscriptionId, [
+        $currentPlan = $local->plan;
+        $isUpgrade   = $currentPlan
+            ? ((float) $newPlan->price > (float) $currentPlan->price)
+            : true; // koi current plan nahi mila to safe-side upgrade treat karo
+
+        $params = [
             'cancel_at_period_end' => false,
-            'proration_behavior'   => 'create_prorations',
             'items'                => [['id' => $itemId, 'price' => $newPlan->stripePriceId]],
-            'metadata'             => array_merge((array) $stripeSub->metadata, ['planId' => $newPlan->id]),
-            'discounts'            => !empty($discounts) ? $discounts : '',
-        ]);
+            'metadata'             => array_merge(
+                $stripeSub->metadata ? $stripeSub->metadata->toArray() : [],
+                ['planId' => $newPlan->id]
+            ),
+        ];
+
+        if ($isUpgrade) {
+            // Immediate: abhi swap + abhi proration charge
+            $params['proration_behavior'] = 'always_invoice';
+        } else {
+            // Downgrade: abhi kuch charge nahi, naya price agle cycle se effective
+            $params['proration_behavior']  = 'none';
+            $params['billing_cycle_anchor'] = 'unchanged';
+        }
+
+        if (!empty($discounts)) {
+            $params['discounts'] = $discounts;
+        }
+
+        $updated = $this->stripe->subscriptions->update($local->stripeSubscriptionId, $params);
+
+        // Upgrade pe payment fail ho sakta hai — verify karo
+        if ($isUpgrade) {
+            $updated = $this->stripe->subscriptions->retrieve($updated->id, [
+                'expand' => ['latest_invoice.payment_intent'],
+            ]);
+
+            if (!in_array($updated->status, ['active', 'trialing'])) {
+                $reason = $this->extractFailureReason($updated);
+                $this->upsertLocalSubscription($local->user, $newPlan, $updated);
+                throw new \RuntimeException($reason);
+            }
+        }
 
         return $this->upsertLocalSubscription($local->user, $newPlan, $updated);
     }

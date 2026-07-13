@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Models\Plan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 
@@ -82,6 +83,7 @@ class AuthService
         }
 
         $user->detail()->create($detailData);
+        $subscription = $this->assignFreeSubscription($user, $role);
         $user->load('detail');
 
         return [
@@ -137,4 +139,27 @@ class AuthService
         $user->currentAccessToken()->delete();
         return $user->createToken('auth_token')->plainTextToken;
     }
+
+        private function assignFreeSubscription(User $user)
+{
+    $plan = Plan::query()
+        ->where('price', 0)
+        ->where('isActive', 1)
+        ->first();
+
+    if (!$plan) {
+        throw \Illuminate\Validation\ValidationException::withMessages([
+            'plan' => ['No active free plan is configured.'],
+        ]);
+    }
+
+    return $user->subscriptions()->create([
+        'planId'                => $plan->id,
+        'status'                => 'active',
+        'currentPeriodStart'    => now(),
+        'currentPeriodEnd'      => null,
+        'cancelAtPeriodEnd'     => false,
+        'stripeSubscriptionId'  => null,
+    ]);
+}
 }

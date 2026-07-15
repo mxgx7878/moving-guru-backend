@@ -8,6 +8,7 @@ use App\Services\StripeService;
 use App\Services\PromoCodeService;
 use App\Helpers\ApiResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class SubscriptionController extends Controller
 {
@@ -47,70 +48,80 @@ class SubscriptionController extends Controller
     /** POST /api/subscription/change  { planId, paymentMethodId? } */
     public function change(Request $request)
     {
-        $request->validate([
-            'planId'          => 'required|string|exists:plans,id',
-            'paymentMethodId' => 'nullable|string',
-            'promoCode'       => 'nullable|string|max:64',
+        $validated = $request->validate([
+            'planId' => [
+                'required',
+                'string',
+                Rule::exists('plans', 'id')->where(fn ($query) => $query->where('isActive', true)),
+            ],
+            'paymentMethodId' => ['nullable', 'string', 'starts_with:pm_'],
+            'promoCode' => ['nullable', 'string', 'max:64'],
         ]);
 
         $user = $request->user();
-        $plan = Plan::findOrFail($request->planId);
+        $plan = Plan::active()->findOrFail($validated['planId']);
 
-        if ($request->paymentMethodId) {
-            $this->stripe->setDefaultPaymentMethod($user, $request->paymentMethodId);
-            $user->refresh();
+        if (!$plan->stripePriceId) {
+            return ApiResponse::error('This plan is not available for checkout.', [], 422);
         }
-
-        if (!$user->default_payment_method_id) {
-            return ApiResponse::error('Add a payment method before subscribing.', [], 422);
-        }
-
-        // Pre-validate the promo before creating the subscription.
-        $pc = null;
-        if ($request->filled('promoCode')) {
-            // if ($plan->hasDiscount) {
-            //     return ApiResponse::error(
-            //         'This plan already has a discount, so a promo code can’t be applied.',
-            //         ['promoCode' => ['Promo codes are not allowed on discounted plans.']],
-            //         422,
-            //     );
-            // }
-            try {
-                $pc = $this->promo->validateForUser($user, $request->promoCode, $plan);
-            } catch (\Illuminate\Validation\ValidationException $e) {
-                return ApiResponse::error(
-                    $e->validator->errors()->first('promoCode') ?: 'Invalid promo code.',
-                    $e->errors(), 422,
-                );
-            }
-        }
-
-         $discounts = [];
-        if ($plan->hasDiscount && $plan->stripeCouponId) {
-            $discounts[] = ['coupon' => $plan->stripeCouponId];
-        }
-        if ($pc && $pc->stripePromotionCodeId) {
-            $discounts[] = ['promotion_code' => $pc->stripePromotionCodeId];
-        }
-
 
         try {
-            $sub = $this->stripe->subscribeOrSwap($user, $plan, $discounts);
-
-            if ($pc) {
-                $this->promo->recordRedemption($user, $pc, $sub);   // sirf record, discount already applied
+            if (!empty($validated['paymentMethodId'])) {
+                $this->stripe->setDefaultPaymentMethod($user, $validated['paymentMethodId']);
+                $user->refresh();
             }
 
-            $sub->load(['plan.planFeatures']);
-            if ($sub->plan) {
-                $sub->plan->featureKeys = $sub->plan->planFeatures
+            if (!$user->default_payment_method_id) {
+                return ApiResponse::error('Add a payment method before subscribing.', [], 422);
+            }
+
+            $promoCode = null;
+            if (!empty($validated['promoCode'])) {
+                $promoCode = $this->promo->validateForUser(
+                    $user,
+                    $validated['promoCode'],
+                    $plan,
+                );
+            }
+
+            $discounts = [];
+            if ($plan->hasDiscount && $plan->stripeCouponId) {
+                $discounts[] = ['coupon' => $plan->stripeCouponId];
+            }
+            if ($promoCode?->stripePromotionCodeId) {
+                $discounts[] = ['promotion_code' => $promoCode->stripePromotionCodeId];
+            }
+
+            $subscription = $this->stripe->subscribeOrSwap($user, $plan, $discounts);
+
+            if ($promoCode) {
+                $this->promo->recordRedemption($user, $promoCode, $subscription);
+            }
+
+            $subscription->load(['plan.planFeatures']);
+            if ($subscription->plan) {
+                $subscription->plan->featureKeys = $subscription->plan->planFeatures
                     ->pluck('key')->values()->toArray();
             }
 
-            return ApiResponse::success('Plan updated', ['subscription' => $sub]);
+            return ApiResponse::success('Subscription created', [
+                'subscription' => $subscription,
+                'requiresPaymentConfirmation' => (bool) ($subscription->requiresPaymentConfirmation ?? false),
+                'paymentClientSecret' => $subscription->paymentClientSecret ?? null,
+                'accessGranted' => in_array($subscription->status, ['active', 'trialing'], true),
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return ApiResponse::error(
+                $e->validator->errors()->first('promoCode') ?: 'Invalid promo code.',
+                $e->errors(),
+                422,
+            );
+        } catch (\RuntimeException $e) {
+            report($e);
+            return ApiResponse::error($e->getMessage(), [], 422);
         } catch (\Throwable $e) {
             report($e);
-            return ApiResponse::error($e->getMessage(), [], 500);
+            return ApiResponse::error('Unable to create the subscription.', [], 500);
         }
     }
 
@@ -156,5 +167,74 @@ class SubscriptionController extends Controller
         return ApiResponse::success('Subscription resumed', [
             'subscription' => $sub->fresh(['plan']),
         ]);
+    }
+
+    public function paymentMethod(Request $request)
+    {
+        try {
+            $paymentMethods = $this->stripe->getPaymentMethods(
+                $request->user(),
+            );
+        } catch (\Throwable $e) {
+            report($e);
+            return ApiResponse::error('Unable to load the saved card.', [], 422);
+        }
+
+        $defaultPaymentMethod = collect($paymentMethods)
+            ->firstWhere('isDefault', true);
+
+        return ApiResponse::success('Payment methods', [
+            // Keep the singular field temporarily for older frontend builds.
+            'paymentMethod' => $defaultPaymentMethod,
+            'paymentMethods' => $paymentMethods,
+            'defaultPaymentMethodId' => $request->user()->default_payment_method_id,
+        ]);
+    }
+
+    public function retryPayment(Request $request)
+    {
+        $validated = $request->validate([
+            'paymentMethodId' => [
+                'required',
+                'string',
+                'starts_with:pm_',
+            ],
+        ]);
+
+        $user = $request->user();
+
+        $subscription = $user->subscriptions()
+            ->where('status', 'past_due')
+            ->latest()
+            ->first();
+
+        if (!$subscription) {
+            return ApiResponse::error(
+                'No past-due subscription was found.',
+                [],
+                404,
+            );
+        }
+
+        try {
+            $result = $this->stripe->preparePastDuePaymentRetry(
+                $user,
+                $subscription,
+                $validated['paymentMethodId'],
+            );
+
+            return ApiResponse::success(
+                'Payment method updated. Complete payment confirmation.',
+                $result,
+            );
+        } catch (\Throwable $e) {
+            report($e);
+
+            return ApiResponse::error(
+                'Unable to retry the subscription payment.',
+                [],
+                422,
+            );
+        }
     }
 }

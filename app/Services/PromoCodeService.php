@@ -88,16 +88,25 @@ public function preview(PromoCode $pc, Plan $plan): array
     }
 
 
-     public function recordRedemption(User $user, PromoCode $pc, Subscription $sub): void
-    {
-        PromoCodeRedemption::create([
-            'promoCodeId'           => $pc->id,
-            'userId'                => $user->id,
-            'subscriptionId'        => $sub->id,
-            'stripePromotionCodeId' => $pc->stripePromotionCodeId,
-            'redeemedAt'            => now(),
-        ]);
+    public function recordRedemption(
+        User $user,
+        PromoCode $promoCode,
+        Subscription $subscription,
+    ): void {
+        $redemption = PromoCodeRedemption::firstOrCreate(
+            [
+                'promoCodeId' => $promoCode->id,
+                'userId' => $user->id,
+            ],
+            [
+                'subscriptionId' => $subscription->id,
+                'stripePromotionCodeId' => $promoCode->stripePromotionCodeId,
+                'redeemedAt' => now(),
+            ],
+        );
 
-        $pc->increment('timesRedeemed');
+        if ($redemption->wasRecentlyCreated) {
+            $promoCode->increment('timesRedeemed');
+        }
     }
 }

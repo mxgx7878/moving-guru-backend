@@ -68,30 +68,127 @@ class StripeService
         ];
     }
 
-    public function setDefaultPaymentMethod(User $user, string $paymentMethodId): void
-    {
+    public function setDefaultPaymentMethod(
+    User $user,
+    string $paymentMethodId
+    ): void {
         $customerId = $this->getOrCreateCustomer($user);
 
-        try {
-            $this->stripe->paymentMethods->attach($paymentMethodId, ['customer' => $customerId]);
-        } catch (\Throwable $e) {
-            // already attached — fine
+        $paymentMethod = $this->stripe->paymentMethods->retrieve(
+            $paymentMethodId
+        );
+
+        // Prevent using another customer's card.
+        if (
+            $paymentMethod->customer
+            && $paymentMethod->customer !== $customerId
+        ) {
+            throw new \RuntimeException(
+                'This payment method belongs to another customer.'
+            );
         }
 
-        $this->stripe->customers->update($customerId, [
-            'invoice_settings' => ['default_payment_method' => $paymentMethodId],
-        ]);
+        // Attach a newly created PaymentMethod to the customer.
+        if (!$paymentMethod->customer) {
+            $this->stripe->paymentMethods->attach(
+                $paymentMethodId,
+                [
+                    'customer' => $customerId,
+                ],
+            );
+        }
 
-        $user->forceFill(['default_payment_method_id' => $paymentMethodId])->save();
+        // Update Customer default payment method.
+        $this->stripe->customers->update(
+            $customerId,
+            [
+                'invoice_settings' => [
+                    'default_payment_method' => $paymentMethodId,
+                ],
+            ],
+        );
+
+        // Update active Subscription default payment method.
+        $activeSubscription = $user->activeSubscription;
+
+        if ($activeSubscription?->stripeSubscriptionId) {
+            $this->stripe->subscriptions->update(
+                $activeSubscription->stripeSubscriptionId,
+                [
+                    'default_payment_method' => $paymentMethodId,
+                ],
+            );
+        }
+
+        // Keep the local database synchronized.
+        $user->forceFill([
+            'default_payment_method_id' => $paymentMethodId,
+        ])->save();
     }
 
     // ───────────────────────── Subscriptions ─────────────────────
 
     public function subscribeOrSwap(User $user, Plan $plan, array $discounts): Subscription
     {
-
-
         $customerId = $this->getOrCreateCustomer($user);
+
+        // Reuse an unfinished checkout instead of creating duplicate Stripe
+        // subscriptions when the user refreshes or clicks subscribe twice.
+        $pending = $user->subscriptions()
+            ->where('status', 'incomplete')
+            ->latest()
+            ->first();
+
+        if ($pending?->stripeSubscriptionId) {
+            try {
+                $pendingStripeSub = $this->stripe->subscriptions->retrieve(
+                    $pending->stripeSubscriptionId,
+                    ['expand' => ['latest_invoice.confirmation_secret']],
+                );
+            } catch (\Throwable $e) {
+                $pending->forceFill(['status' => 'cancelled', 'cancelledAt' => now()])->save();
+                $pendingStripeSub = null;
+            }
+
+           if (
+                $pendingStripeSub
+                && $pending->planId === $plan->id
+                && $pendingStripeSub->status === 'incomplete'
+            ) {
+                    $pendingStripeSub = $this->stripe->subscriptions->update(
+                        $pendingStripeSub->id,
+                        [
+                            'default_payment_method' => $user->default_payment_method_id,
+                        ],
+                    );
+
+                    $pendingStripeSub = $this->stripe->subscriptions->retrieve(
+                        $pendingStripeSub->id,
+                        [
+                            'expand' => [
+                                'latest_invoice.confirmation_secret',
+                                'latest_invoice.payment_intent',
+                            ],
+                        ],
+                    );
+
+                    return $this->withPaymentConfirmationData(
+                        $this->upsertLocalSubscription(
+                            $user,
+                            $plan,
+                            $pendingStripeSub,
+                        ),
+                        $pendingStripeSub,
+                    );
+                }
+
+            // A different selection replaces the abandoned incomplete attempt.
+            if ($pendingStripeSub?->status === 'incomplete') {
+                $this->stripe->subscriptions->cancel($pendingStripeSub->id);
+                $pending->forceFill(['status' => 'cancelled', 'cancelledAt' => now()])->save();
+            }
+        }
+
         $existing   = $user->activeSubscription;
 
 
@@ -103,12 +200,13 @@ class StripeService
         $params = [
             'customer'         => $customerId,
             'items'            => [['price' => $plan->stripePriceId]],
+            'default_payment_method' => $user->default_payment_method_id,
             'payment_behavior' => 'default_incomplete',
             'payment_settings' => [
                 'save_default_payment_method' => 'on_subscription',
                 'payment_method_types'        => ['card'],
             ],
-            'expand'           => ['latest_invoice'],
+            'expand'           => ['latest_invoice.confirmation_secret'],
             'metadata'         => ['userId' => $user->id, 'planId' => $plan->id],
         ];
 
@@ -130,21 +228,19 @@ class StripeService
         }
 
         $stripeSub = $this->stripe->subscriptions->create($params);
+        $local     = $this->upsertLocalSubscription($user, $plan, $stripeSub);
 
-
-        $this->payFirstInvoice($stripeSub, $user);
-
-        $stripeSub = $this->stripe->subscriptions->retrieve($stripeSub->id, [
-            'expand' => ['latest_invoice.payment_intent'],
-        ]);
-
-        if (!in_array($stripeSub->status, ['active', 'trialing'])) {
-            $reason = $this->extractFailureReason($stripeSub);
-            $this->upsertLocalSubscription($user, $plan, $stripeSub);
-            throw new \RuntimeException($reason);
+        // Free and trial subscriptions become active/trialing immediately.
+        // An immediately-paid plan may remain incomplete until Stripe.js
+        // confirms 3DS/SCA using this client secret on the checkout page.
+        if ($stripeSub->status === 'incomplete') {
+            $local = $this->withPaymentConfirmationData($local, $stripeSub);
+        } elseif (!in_array($stripeSub->status, ['active', 'trialing'], true)) {
+            throw new \RuntimeException($this->extractFailureReason($stripeSub));
+        } else {
+            $local->setAttribute('requiresPaymentConfirmation', false);
+            $local->setAttribute('paymentClientSecret', null);
         }
-
-        $local = $this->upsertLocalSubscription($user, $plan, $stripeSub);
 
 
 
@@ -160,49 +256,6 @@ class StripeService
         }
 
         return $local;
-    }
-
-    protected function payFirstInvoice(\Stripe\Subscription $sub, User $user): void
-    {
-        $invoice = $sub->latest_invoice;
-
-
-        if (!$invoice) {
-            \Illuminate\Support\Facades\Log::warning('No invoice on new subscription', ['sub' => $sub->id]);
-            return;
-        }
-
-        if ($invoice->status === 'paid') return;
-        if ($invoice->amount_due === 0)  return;
-
-        try {
-            $paid = $this->stripe->invoices->pay($invoice->id, [
-                'payment_method' => $user->default_payment_method_id,
-            ]);
-
-            \Illuminate\Support\Facades\Log::info('Invoice pay result', [
-                'invoice_id'  => $paid->id,
-                'status'      => $paid->status,
-                'amount_paid' => $paid->amount_paid,
-            ]);
-        } catch (\Stripe\Exception\CardException $e) {
-            $err = $e->getError();
-            \Illuminate\Support\Facades\Log::warning('CardException on invoice pay', [
-                'code'         => $err->code,
-                'decline_code' => $err->decline_code ?? null,
-                'message'      => $err->message,
-            ]);
-            throw new \RuntimeException(
-                $err->message ?: 'Your card was declined. Please try a different card.'
-            );
-        } catch (\Stripe\Exception\InvalidRequestException $e) {
-            \Illuminate\Support\Facades\Log::warning('InvalidRequest on invoice pay', [
-                'message' => $e->getError()->message ?? $e->getMessage(),
-            ]);
-            throw new \RuntimeException(
-                'Could not process payment: ' . ($e->getError()->message ?? $e->getMessage())
-            );
-        }
     }
 
     protected function extractFailureReason(StripeSubscription $sub): string
@@ -306,6 +359,8 @@ class StripeService
                 : now(),
         ])->save();
 
+        $this->syncUserAccessStatus($local->user, 'cancelled');
+
         return $local;
     }
 
@@ -341,7 +396,7 @@ class StripeService
             $user->forceFill(['has_used_trial' => true])->save();
         }
 
-        return Subscription::updateOrCreate(
+        $local = Subscription::updateOrCreate(
             ['stripeSubscriptionId' => $sub->id],
             [
                 'userId'             => $user->id,
@@ -354,6 +409,50 @@ class StripeService
                 'trialEndsAt'        => $sub->trial_end   ? Carbon::createFromTimestamp($sub->trial_end)   : null,
             ]
         );
+
+        $this->syncUserAccessStatus($user, $status);
+
+        return $local;
+    }
+
+    protected function withPaymentConfirmationData(
+        Subscription $local,
+        StripeSubscription $stripeSub,
+    ): Subscription {
+        $clientSecret = $stripeSub->latest_invoice?->confirmation_secret?->client_secret
+            ?? $stripeSub->latest_invoice?->payment_intent?->client_secret;
+
+        if (!$clientSecret) {
+            throw new \RuntimeException($this->extractFailureReason($stripeSub));
+        }
+
+        $local->setAttribute('requiresPaymentConfirmation', true);
+        $local->setAttribute('paymentClientSecret', $clientSecret);
+
+        return $local;
+    }
+
+    /**
+     * Keep platform access aligned with Stripe while preserving administrative
+     * suspension/rejection states. Trialing and active subscriptions have
+     * access; all payment/cancellation states return the user to checkout.
+     */
+    public function syncUserAccessStatus(User $user, string $subscriptionStatus): void
+    {
+        if (in_array($user->status, ['suspended', 'rejected'], true)) {
+            return;
+        }
+
+        $hasAccess = in_array($subscriptionStatus, ['active', 'trialing'], true)
+            || $user->subscriptions()
+                ->whereIn('status', ['active', 'trialing'])
+                ->exists();
+
+        $status = $hasAccess ? 'active' : 'pending_payment';
+
+        if ($user->status !== $status) {
+            $user->forceFill(['status' => $status])->save();
+        }
     }
 
     protected function extractSubscriptionIdFromInvoice(StripeInvoice $invoice): ?string
@@ -798,5 +897,112 @@ class StripeService
 
         $final = round(max(0, $amount), 2);
         return $final;
+    }
+       public function getPaymentMethods(User $user): array
+    {
+        if (!$user->stripe_customer_id) {
+            return [];
+        }
+
+        $customer = $this->stripe->customers->retrieve($user->stripe_customer_id);
+        $stripeDefault = $customer->invoice_settings?->default_payment_method;
+        $defaultPaymentMethodId = is_string($stripeDefault)
+            ? $stripeDefault
+            : (is_object($stripeDefault)
+                ? ($stripeDefault->id ?? $user->default_payment_method_id)
+                : $user->default_payment_method_id);
+
+        // Keep the local shortcut synchronized if the default was changed
+        // directly from Stripe Dashboard.
+        if ($defaultPaymentMethodId !== $user->default_payment_method_id) {
+            $user->forceFill([
+                'default_payment_method_id' => $defaultPaymentMethodId,
+            ])->save();
+        }
+
+        $paymentMethods = $this->stripe->paymentMethods->all([
+            'customer' => $user->stripe_customer_id,
+            'type' => 'card',
+            'limit' => 100,
+        ]);
+
+        return collect($paymentMethods->data)
+            ->filter(fn ($paymentMethod) => $paymentMethod->card)
+            ->map(fn ($paymentMethod) => [
+                'id' => $paymentMethod->id,
+                'brand' => $paymentMethod->card->brand,
+                'last4' => $paymentMethod->card->last4,
+                'expMonth' => $paymentMethod->card->exp_month,
+                'expYear' => $paymentMethod->card->exp_year,
+                'isDefault' => $paymentMethod->id === $defaultPaymentMethodId,
+            ])
+            ->sortByDesc('isDefault')
+            ->values()
+            ->all();
+    }
+
+    public function preparePastDuePaymentRetry(
+    User $user,
+    Subscription $localSubscription,
+    string $paymentMethodId,
+    ): array {
+        // This updates:
+        // 1. Customer default
+        // 2. Subscription default
+        // 3. Local user default_payment_method_id
+        $this->setDefaultPaymentMethod(
+            $user,
+            $paymentMethodId,
+        );
+
+        $stripeSubscription = $this->stripe->subscriptions->retrieve(
+            $localSubscription->stripeSubscriptionId,
+            [
+                'expand' => [
+                    'latest_invoice.confirmation_secret',
+                    'latest_invoice.payment_intent',
+                ],
+            ],
+        );
+
+        $invoice = $stripeSubscription->latest_invoice;
+
+        if (!$invoice) {
+            throw new \RuntimeException(
+                'No renewal invoice was found.'
+            );
+        }
+
+        if ($invoice->status === 'paid') {
+            $this->upsertLocalSubscription(
+                $user,
+                $localSubscription->plan,
+                $stripeSubscription,
+            );
+
+            return [
+                'requiresPaymentConfirmation' => false,
+                'accessGranted' => true,
+            ];
+        }
+
+        $clientSecret =
+            $invoice->confirmation_secret?->client_secret
+            ?? $invoice->payment_intent?->client_secret
+            ?? null;
+
+        if (!$clientSecret) {
+            throw new \RuntimeException(
+                'The failed invoice cannot be retried.'
+            );
+        }
+
+        return [
+            'subscriptionId' => $localSubscription->id,
+            'requiresPaymentConfirmation' => true,
+            'paymentClientSecret' => $clientSecret,
+            'paymentMethodId' => $paymentMethodId,
+            'accessGranted' => false,
+        ];
     }
 }

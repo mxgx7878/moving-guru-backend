@@ -95,6 +95,14 @@ Route::middleware('auth:sanctum')->group(function () {
   Route::post ('subscription/change',          [SubscriptionController::class, 'change']);
   Route::post ('subscription/cancel',          [SubscriptionController::class, 'cancel']);
   Route::post ('subscription/resume',          [SubscriptionController::class, 'resume']);
+  Route::get(
+    '/subscription/payment-method',
+    [SubscriptionController::class, 'paymentMethod']
+  );
+  Route::post(
+      '/subscription/retry-payment',
+      [SubscriptionController::class, 'retryPayment'],
+  );
 
   // Payments
   Route::get  ('payments',              [PaymentController::class, 'index']);

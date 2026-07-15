@@ -38,6 +38,7 @@ class AuthService
             'email'    => $data['email'],
             'password' => Hash::make($data['password']),
             'role'     => $data['role'] ?? 'instructor',
+            'status'   => 'pending_payment',
         ]);
 
         // ── Build detail — all keys already camelCase ──────────
@@ -83,7 +84,6 @@ class AuthService
         }
 
         $user->detail()->create($detailData);
-        $subscription = $this->assignFreeSubscription($user, $role);
         $user->load('detail');
 
         return [
@@ -140,26 +140,4 @@ class AuthService
         return $user->createToken('auth_token')->plainTextToken;
     }
 
-        private function assignFreeSubscription(User $user)
-{
-    $plan = Plan::query()
-        ->where('price', 0)
-        ->where('isActive', 1)
-        ->first();
-
-    if (!$plan) {
-        throw \Illuminate\Validation\ValidationException::withMessages([
-            'plan' => ['No active free plan is configured.'],
-        ]);
-    }
-
-    return $user->subscriptions()->create([
-        'planId'                => $plan->id,
-        'status'                => 'active',
-        'currentPeriodStart'    => now(),
-        'currentPeriodEnd'      => null,
-        'cancelAtPeriodEnd'     => false,
-        'stripeSubscriptionId'  => null,
-    ]);
-}
 }

@@ -80,6 +80,10 @@ class User extends Authenticatable
     {
         return $this->hasMany(Payment::class, 'userId');
     }
+    public function isPendingPayment(): bool
+    {
+        return $this->status === 'pending_payment';
+    }
 
     public function isActive(): bool    { return $this->status === 'active'; }
     public function isPending(): bool   { return $this->status === 'pending'; }

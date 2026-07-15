@@ -94,6 +94,16 @@ class StripeWebhookController extends Controller
     protected function onInvoicePaid($invoice): void
     {
         $subscriptionId = $this->subscriptionIdFromInvoice($invoice);
+        $user = User::where('stripe_customer_id', $invoice->customer)->first();
+
+
+        // A paid subscription invoice restores access, including a successful
+        // retry after a past_due payment. Ignore unrelated one-off invoices.
+        if ($user && $subscriptionId) {
+            Subscription::where('stripeSubscriptionId', $subscriptionId)
+                ->update(['status' => 'active']);
+            $this->stripe->syncUserAccessStatus($user, 'active');
+        }
 
 
         // Skip $0 trial-start invoices — Stripe creates these automatically when
@@ -161,6 +171,10 @@ class StripeWebhookController extends Controller
         $reason = $this->extractInvoiceFailureReason($invoice);
 
         $user = User::where('stripe_customer_id', $invoice->customer)->first();
+
+        if ($user && $subscriptionId) {
+            $this->stripe->syncUserAccessStatus($user, 'past_due');
+        }
         if (!$user?->email || !$sub) return;
 
         try {

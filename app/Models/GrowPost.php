@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class GrowPost extends Model
 {
@@ -11,6 +12,11 @@ class GrowPost extends Model
 
     protected $fillable = [
         'user_id',
+        'contact_name',
+        'contact_email',
+        'contact_phone',
+        'organization_name',
+        'date_label',
         'type',
         'title',
         'subtitle',
@@ -45,12 +51,27 @@ class GrowPost extends Model
         'spots_left'   => 'integer',
     ];
 
+    protected $appends = ['posted_by'];
+
     // ── Relationships ────────────────────────────────────────────
 
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id')
                     ->select(['id', 'name', 'email', 'role']);
+    }
+
+    public function getPostedByAttribute(): string
+    {
+        return $this->user?->name
+            ?? $this->organization_name
+            ?? $this->contact_name
+            ?? 'Public publisher';
+    }
+
+    public function growPayments(): HasMany
+    {
+        return $this->hasMany(GrowPostPayment::class, 'grow_post_id');
     }
 
     // ── Scopes ───────────────────────────────────────────────────

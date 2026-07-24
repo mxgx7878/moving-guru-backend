@@ -7,6 +7,8 @@ use App\Http\Controllers\API\ProfileController;
 use App\Http\Controllers\API\PasswordResetController;
 use App\Http\Controllers\API\ProfileViewController;
 use App\Http\Controllers\API\GrowPostController;
+use App\Http\Controllers\API\GrowPaymentController;
+use App\Http\Controllers\API\GrowPostTierController;
 use App\Http\Controllers\API\JobListingController;
 use App\Http\Controllers\API\InstructorController;
 use App\Http\Controllers\API\ReviewController;
@@ -35,6 +37,10 @@ Route::post('/password/forgot', [PasswordResetController::class, 'forgot']);
 Route::post('/password/reset', [PasswordResetController::class, 'reset']);
 Route::get('grow-posts',       [GrowPostController::class, 'index']);
 Route::get('grow-posts/{id}',  [GrowPostController::class, 'show'])->whereNumber('id');
+Route::get('grow-post-tiers', [GrowPostTierController::class, 'index']);
+Route::post('public/grow-payments/intents', [GrowPaymentController::class, 'createPublicIntent'])->middleware('throttle:10,1');
+Route::post('public/grow-payments/complete', [GrowPaymentController::class, 'completePublicIntent'])->middleware('throttle:20,1');
+Route::post('public/grow-posts', [GrowPostController::class, 'publicStore'])->middleware('throttle:10,1');
 Route::get('jobs',            [JobListingController::class, 'index']);
 Route::get('jobs/{id}',       [JobListingController::class, 'show'])->whereNumber('id');
 Route::get('instructors',        [InstructorController::class, 'index']);
@@ -61,6 +67,8 @@ Route::middleware('auth:sanctum')->group(function () {
   Route::post('grow-posts',           [GrowPostController::class, 'store']);
   Route::put('grow-posts/{id}',      [GrowPostController::class, 'update']);
   Route::delete('grow-posts/{id}',      [GrowPostController::class, 'destroy']);
+  Route::post('grow-payments/intents',  [GrowPaymentController::class, 'createIntent']);
+  Route::post('grow-payments/complete', [GrowPaymentController::class, 'completeIntent']);
   //JOB LISTINGS & APPLICATIONS
   Route::get('jobs/mine',       [JobListingController::class, 'mine'])
     ->middleware(IsStudio::class);
@@ -136,6 +144,10 @@ Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(func
   Route::patch('grow-posts/{id}/reject',  [GrowPostController::class, 'reject']);
   Route::patch('grow-posts/{id}/boost',   [GrowPostController::class, 'boost']);
   Route::delete('grow-posts/{id}',         [GrowPostController::class, 'adminDestroy']);
+  Route::get('grow-post-tiers', [GrowPostTierController::class, 'adminIndex']);
+  Route::post('grow-post-tiers', [GrowPostTierController::class, 'store']);
+  Route::patch('grow-post-tiers/{tier}', [GrowPostTierController::class, 'update']);
+  Route::delete('grow-post-tiers/{tier}', [GrowPostTierController::class, 'destroy']);
   Route::get('users',                   [UserManagementController::class, 'index']);
   Route::post('users',                   [UserManagementController::class, 'store']);
   Route::get('users/{id}',              [UserManagementController::class, 'show'])->whereNumber('id');

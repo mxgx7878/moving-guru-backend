@@ -9,6 +9,7 @@ use App\Http\Controllers\API\ProfileViewController;
 use App\Http\Controllers\API\GrowPostController;
 use App\Http\Controllers\API\GrowPaymentController;
 use App\Http\Controllers\API\GrowPostTierController;
+use App\Http\Controllers\API\GrowPromoCodeController;
 use App\Http\Controllers\API\JobListingController;
 use App\Http\Controllers\API\InstructorController;
 use App\Http\Controllers\API\ReviewController;
@@ -41,6 +42,7 @@ Route::get('grow-post-tiers', [GrowPostTierController::class, 'index']);
 Route::post('public/grow-payments/intents', [GrowPaymentController::class, 'createPublicIntent'])->middleware('throttle:10,1');
 Route::post('public/grow-payments/complete', [GrowPaymentController::class, 'completePublicIntent'])->middleware('throttle:20,1');
 Route::post('public/grow-posts', [GrowPostController::class, 'publicStore'])->middleware('throttle:10,1');
+Route::post('grow-promo-codes/validate', [GrowPromoCodeController::class, 'validateCode'])->middleware('throttle:30,1');
 Route::get('jobs',            [JobListingController::class, 'index']);
 Route::get('jobs/{id}',       [JobListingController::class, 'show'])->whereNumber('id');
 Route::get('instructors',        [InstructorController::class, 'index']);
@@ -195,5 +197,11 @@ Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(func
   Route::post  ('promo-codes',      [PromoCodeController::class, 'store']);
   Route::patch ('promo-codes/{id}', [PromoCodeController::class, 'update'])->whereNumber('id');
   Route::delete('promo-codes/{id}', [PromoCodeController::class, 'destroy'])->whereNumber('id');
+  
+  // Grow-only promo codes (separate pool from subscription promo codes).
+  Route::get   ('grow-promo-codes',      [GrowPromoCodeController::class, 'index']);
+  Route::post  ('grow-promo-codes',      [GrowPromoCodeController::class, 'store']);
+  Route::patch ('grow-promo-codes/{id}', [GrowPromoCodeController::class, 'update'])->whereNumber('id');
+  Route::delete('grow-promo-codes/{id}', [GrowPromoCodeController::class, 'destroy'])->whereNumber('id');
 
 });

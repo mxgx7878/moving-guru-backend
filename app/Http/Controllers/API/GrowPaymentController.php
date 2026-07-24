@@ -6,10 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\GrowPost;
 use App\Models\GrowPostPayment;
 use App\Models\GrowPostTier;
+use App\Models\GrowPromoCode;
+use App\Services\GrowPromoCodeService;
 use App\Services\StripeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
 use Stripe\StripeClient;
 
@@ -19,8 +22,10 @@ class GrowPaymentController extends Controller
 
     private const BOOST = ['amount' => 1000, 'days' => 7];
 
-    public function __construct(private StripeService $stripeService)
-    {
+    public function __construct(
+        private StripeService $stripeService,
+        private GrowPromoCodeService $growPromo,
+    ) {
         $this->stripe = new StripeClient(config('services.stripe.secret'));
     }
 
@@ -31,6 +36,8 @@ class GrowPaymentController extends Controller
             'pricingTierId' => ['required_if:purpose,listing', 'nullable', 'integer', 'exists:grow_post_tiers,id'],
             'postId' => ['required_if:purpose,boost', 'nullable', 'integer'],
             'paymentMethodId' => ['required', 'string', 'starts_with:pm_'],
+            // Promo codes apply to LISTING fees only (boosts stay full price).
+            'promoCode' => ['nullable', 'string', 'max:64'],
         ]);
 
         $user = $request->user();
@@ -58,6 +65,24 @@ class GrowPaymentController extends Controller
             : self::BOOST;
         $currency = strtolower($tier?->currency ?? config('services.stripe.currency', 'aud'));
 
+        // ── Promo code (listing only) ──────────────────────────
+        $originalCents = $config['amount'];
+        $chargeCents   = $originalCents;
+        $discountCents = 0;
+        $promo         = null;
+
+        if ($purpose === 'listing' && !empty($validated['promoCode'])) {
+            try {
+                $promo = $this->growPromo->validate($validated['promoCode']);
+                [$chargeCents, $discountCents] = $this->growPromo->applyToCents($promo, $originalCents);
+            } catch (ValidationException $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->validator->errors()->first('promoCode') ?: 'Invalid promo code.',
+                ], 422);
+            }
+        }
+
         $customerId = $this->stripeService->getOrCreateCustomer($user);
         $paymentMethod = $this->stripe->paymentMethods->retrieve($validated['paymentMethodId']);
         $paymentMethodCustomer = is_string($paymentMethod->customer)
@@ -68,7 +93,7 @@ class GrowPaymentController extends Controller
         }
 
         $intent = $this->stripe->paymentIntents->create([
-            'amount' => $config['amount'],
+            'amount' => $chargeCents,
             'currency' => $currency,
             'customer' => $customerId,
             'payment_method' => $validated['paymentMethodId'],
@@ -84,6 +109,8 @@ class GrowPaymentController extends Controller
                 'purpose' => $purpose,
                 'pricingTierId' => isset($validated['pricingTierId']) ? (string) $validated['pricingTierId'] : null,
                 'postId' => $post ? (string) $post->id : null,
+                'growPromoCode' => $promo?->code,
+                'growPromoCodeId' => $promo ? (string) $promo->id : null,
             ]),
         ]);
 
@@ -92,8 +119,12 @@ class GrowPaymentController extends Controller
             'grow_post_id' => $post?->id,
             'purpose' => $purpose,
             'pricing_tier' => isset($validated['pricingTierId']) ? (string) $validated['pricingTierId'] : null,
+            'grow_promo_code_id' => $promo?->id,
+            'promo_code' => $promo?->code,
             'duration_days' => $config['days'],
-            'amount' => $config['amount'] / 100,
+            'amount' => $chargeCents / 100,
+            'original_amount' => $originalCents / 100,
+            'discount_amount' => $discountCents / 100,
             'currency' => strtoupper($currency),
             'stripe_payment_intent_id' => $intent->id,
             'status' => 'requires_confirmation',
@@ -129,7 +160,7 @@ class GrowPaymentController extends Controller
         }
 
         if ($payment->purpose === 'listing') {
-            $payment->update(['status' => 'succeeded', 'captured_at' => now()]);
+            $this->markListingSucceeded($payment);
         } else {
 
             DB::transaction(function () use ($payment) {
@@ -165,9 +196,29 @@ class GrowPaymentController extends Controller
             'contactName' => ['required', 'string', 'max:120'],
             'contactEmail' => ['required', 'email', 'max:255'],
             'pricingTierId' => ['required', 'integer', 'exists:grow_post_tiers,id'],
+            'promoCode' => ['nullable', 'string', 'max:64'],
         ]);
 
         $tier = GrowPostTier::active()->findOrFail($validated['pricingTierId']);
+
+        // ── Promo code ─────────────────────────────────────────
+        $originalCents = (int) round(((float) $tier->price) * 100);
+        $chargeCents   = $originalCents;
+        $discountCents = 0;
+        $promo         = null;
+
+        if (!empty($validated['promoCode'])) {
+            try {
+                $promo = $this->growPromo->validate($validated['promoCode']);
+                [$chargeCents, $discountCents] = $this->growPromo->applyToCents($promo, $originalCents);
+            } catch (ValidationException $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->validator->errors()->first('promoCode') ?: 'Invalid promo code.',
+                ], 422);
+            }
+        }
+
         $token = Str::random(64);
         $customer = $this->stripe->customers->create([
             'name' => $validated['contactName'],
@@ -175,17 +226,19 @@ class GrowPaymentController extends Controller
             'metadata' => ['source' => 'public_grow'],
         ]);
         $intent = $this->stripe->paymentIntents->create([
-            'amount' => (int) round(((float) $tier->price) * 100),
+            'amount' => $chargeCents,
             'currency' => strtolower($tier->currency),
             'customer' => $customer->id,
             'payment_method_types' => ['card'],
             'capture_method' => 'automatic',
             'description' => 'Public Grow listing payment',
-            'metadata' => [
+            'metadata' => array_filter([
                 'source' => 'public_grow',
                 'contactEmail' => strtolower($validated['contactEmail']),
                 'pricingTierId' => (string) $tier->id,
-            ],
+                'growPromoCode' => $promo?->code,
+                'growPromoCodeId' => $promo ? (string) $promo->id : null,
+            ]),
         ]);
 
         GrowPostPayment::create([
@@ -195,8 +248,12 @@ class GrowPaymentController extends Controller
             'public_token_hash' => hash('sha256', $token),
             'purpose' => 'listing',
             'pricing_tier' => (string) $tier->id,
+            'grow_promo_code_id' => $promo?->id,
+            'promo_code' => $promo?->code,
             'duration_days' => $tier->duration_days,
-            'amount' => $tier->price,
+            'amount' => $chargeCents / 100,
+            'original_amount' => $originalCents / 100,
+            'discount_amount' => $discountCents / 100,
             'currency' => strtoupper($tier->currency),
             'stripe_payment_intent_id' => $intent->id,
             'status' => 'requires_confirmation',
@@ -225,10 +282,33 @@ class GrowPaymentController extends Controller
         if ($intent->status !== 'succeeded') {
             return response()->json(['success' => false, 'message' => 'Payment was not completed.'], 422);
         }
-        $payment->update(['status' => 'succeeded', 'captured_at' => now()]);
+        $this->markListingSucceeded($payment);
         return response()->json(['success' => true, 'data' => [
             'paymentIntentId' => $payment->stripe_payment_intent_id,
             'submissionToken' => $validated['submissionToken'],
         ]]);
+    }
+
+    /**
+     * Mark a listing payment succeeded and, the first time it transitions,
+     * bump the promo code's redemption counter (global cap accounting).
+     * Idempotent — safe to call more than once for the same payment.
+     */
+    private function markListingSucceeded(GrowPostPayment $payment): void
+    {
+        if ($payment->status === 'succeeded') {
+            return;
+        }
+
+        DB::transaction(function () use ($payment) {
+            $payment->update(['status' => 'succeeded', 'captured_at' => now()]);
+
+            if ($payment->grow_promo_code_id) {
+                GrowPromoCode::whereKey($payment->grow_promo_code_id)
+                    ->lockForUpdate()
+                    ->first()
+                    ?->increment('times_redeemed');
+            }
+        });
     }
 }

@@ -10,13 +10,16 @@ class GrowPostPayment extends Model
     protected $fillable = [
         'user_id', 'contact_email', 'stripe_customer_id', 'public_token_hash',
         'grow_post_id', 'purpose', 'pricing_tier',
-        'duration_days', 'amount', 'currency',
+        'grow_promo_code_id', 'promo_code',
+        'duration_days', 'amount', 'original_amount', 'discount_amount', 'currency',
         'stripe_payment_intent_id', 'status', 'captured_at',
     ];
 
     protected $casts = [
         'duration_days' => 'integer',
         'amount' => 'decimal:2',
+        'original_amount' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
         'captured_at' => 'datetime',
     ];
 
@@ -28,5 +31,10 @@ class GrowPostPayment extends Model
     public function growPost(): BelongsTo
     {
         return $this->belongsTo(GrowPost::class, 'grow_post_id');
+    }
+
+    public function growPromoCode(): BelongsTo
+    {
+        return $this->belongsTo(GrowPromoCode::class, 'grow_promo_code_id');
     }
 }

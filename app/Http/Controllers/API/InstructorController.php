@@ -53,6 +53,9 @@ public function index(Request $request)
     Log::debug('Auth User:', ['user' => $authUser]);
 
     $query = User::where('role', 'instructor')
+        ->when($activeOnly, function ($q) {
+        $q->where('users.status', 'active');
+        })
         ->with('detail')
         // Self-exclusion: an instructor should not see themselves in their
         // own swap-search results. No-op for studios / admins / anonymous.

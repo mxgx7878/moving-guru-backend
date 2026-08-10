@@ -13,7 +13,7 @@ class JobApplication extends Model
         'job_listing_id',
         'instructor_id',
         'message',
-        'status',      // pending | viewed | accepted | rejected | withdrawn
+        'status',
         'viewed_at',
         'rejected_at',
     ];

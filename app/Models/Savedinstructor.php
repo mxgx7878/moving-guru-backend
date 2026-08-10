@@ -21,8 +21,6 @@ class SavedInstructor extends Model
 
     public function instructor(): BelongsTo
     {
-        // Eager-load detail so the Saved Instructors page renders
-        // full cards without a second query.
         return $this->belongsTo(User::class, 'instructor_id')
                     ->select(['id', 'name', 'email', 'role'])
                     ->with('detail');

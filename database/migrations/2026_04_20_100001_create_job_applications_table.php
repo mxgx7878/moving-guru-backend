@@ -37,7 +37,6 @@ return new class extends Migration {
             $table->timestamp('viewed_at')->nullable();
             $table->timestamps();
 
-            // One application per instructor per listing
             $table->unique(['job_listing_id', 'instructor_id'], 'uniq_job_instructor');
 
             $table->index(['instructor_id', 'status']);

@@ -9,16 +9,16 @@ return new class extends Migration {
     {
         Schema::create('reports', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('reporterId');       // who reported (receiver)
-            $table->unsignedBigInteger('reportedUserId');   // who is reported (sender)
+            $table->unsignedBigInteger('reporterId');
+            $table->unsignedBigInteger('reportedUserId');
             $table->unsignedBigInteger('conversationId')->nullable();
             $table->unsignedBigInteger('messageId')->nullable();
             $table->enum('type', ['message', 'profile']);
             $table->string('reason');
             $table->text('details')->nullable();
-            $table->json('reportedMessage')->nullable();    // snapshot of the reported message
-            $table->json('contextSnapshot')->nullable();    // last 10 messages snapshot
-            $table->string('status')->default('pending');   // pending|reviewed|resolved|dismissed
+            $table->json('reportedMessage')->nullable();
+            $table->json('contextSnapshot')->nullable();
+            $table->string('status')->default('pending');
             $table->timestamps();
 
             $table->foreign('reporterId')->references('id')->on('users')->cascadeOnDelete();

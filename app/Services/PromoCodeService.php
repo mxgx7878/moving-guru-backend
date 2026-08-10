@@ -50,7 +50,6 @@ public function preview(PromoCode $pc, Plan $plan): array
     {
         $original = (float) $plan->price;
 
-        // Stack: start from the plan's already-discounted price.
         $base = $plan->hasDiscount ? (float) $plan->discountedPrice : $original;
 
         $final = $pc->discountType === 'percent'
@@ -86,7 +85,6 @@ public function preview(PromoCode $pc, Plan $plan): array
 
         $pc->increment('timesRedeemed');
     }
-
 
     public function recordRedemption(
         User $user,

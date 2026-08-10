@@ -53,8 +53,6 @@ class GrowPost extends Model
 
     protected $appends = ['posted_by'];
 
-    // ── Relationships ────────────────────────────────────────────
-
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id')
@@ -73,8 +71,6 @@ class GrowPost extends Model
     {
         return $this->hasMany(GrowPostPayment::class, 'grow_post_id');
     }
-
-    // ── Scopes ───────────────────────────────────────────────────
 
     /** Only approved posts visible to public */
     public function scopeApproved($query)

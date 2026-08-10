@@ -20,8 +20,6 @@ class PromoCodeController extends Controller
         protected PromoCodeService $promo,
     ) {}
 
-    // ── Admin ──────────────────────────────────────────────────
-
     /** GET /api/admin/promo-codes */
     public function index()
     {
@@ -122,8 +120,6 @@ class PromoCodeController extends Controller
         $pc->delete();
         return ApiResponse::success('Promo code deleted', ['id' => $id, 'softDelete' => false]);
     }
-
-    // ── User ───────────────────────────────────────────────────
 
     /** POST /api/promo-codes/validate  { code, planId? } */
     public function validateCode(Request $request)

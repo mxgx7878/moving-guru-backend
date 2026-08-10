@@ -11,7 +11,6 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        // ── 1. ADMIN ───────────────────────────────────────────
         $admin = User::create([
             'name'     => 'Admin User',
             'email'    => 'admin@movingguru.com',
@@ -19,7 +18,6 @@ class DatabaseSeeder extends Seeder
             'role'     => 'admin',
         ]);
 
-        // ── 2. INSTRUCTOR ──────────────────────────────────────
         $instructor = User::create([
             'name'     => 'Sarah Mitchell',
             'email'    => 'instructor@movingguru.com',
@@ -53,7 +51,6 @@ class DatabaseSeeder extends Seeder
             'gallery_photos' => [],
         ]);
 
-        // ── 3. STUDIO ──────────────────────────────────────────
         $studio = User::create([
             'name'     => 'Zen Flow Studio',
             'email'    => 'studio@movingguru.com',

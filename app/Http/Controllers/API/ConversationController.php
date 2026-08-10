@@ -14,9 +14,6 @@ use Illuminate\Support\Facades\Validator;
 
 class ConversationController extends Controller
 {
-    /* ════════════════════════════════════════════════════════════════
-     |  GET /conversations — inbox, newest activity first
-     * ════════════════════════════════════════════════════════════════ */
     public function index(Request $request)
     {
         $me = $request->user()->id;
@@ -41,10 +38,6 @@ class ConversationController extends Controller
         ]);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-     |  POST /conversations — start (or reuse) a conversation
-     |  Payload: { recipientId, body }
-     * ════════════════════════════════════════════════════════════════ */
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -67,7 +60,6 @@ class ConversationController extends Controller
 
         $message = $this->createAndBroadcast($conversation, $me, $request->input('body'));
 
-        // Refetch with relations + unread count so the response matches index()
         $fresh = Conversation::with(['userOne', 'userTwo', 'latestMessage'])
             ->withCount([
                 'messages as unreadCount' => function ($q) use ($me) {
@@ -82,10 +74,6 @@ class ConversationController extends Controller
         ], 201);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-     |  GET /conversations/{id}/messages — open a thread
-     |  Side effect: incoming unread messages are marked read.
-     * ════════════════════════════════════════════════════════════════ */
     public function messages(Request $request, $id)
     {
         $me           = $request->user()->id;
@@ -98,7 +86,6 @@ class ConversationController extends Controller
             return ApiResponse::error('You are not part of this conversation.', [], 403);
         }
 
-        // Opening the thread = reading it
         Message::where('conversationId', $conversation->id)
             ->where('senderId', '!=', $me)
             ->whereNull('readAt')
@@ -119,10 +106,6 @@ class ConversationController extends Controller
         ]);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-     |  POST /conversations/{id}/messages — send into existing thread
-     |  Payload: { body }
-     * ════════════════════════════════════════════════════════════════ */
     public function send(Request $request, $id)
     {
         $me           = $request->user();
@@ -150,10 +133,6 @@ class ConversationController extends Controller
         ], 201);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-     |  PATCH /conversations/{id}/read — mark incoming messages read
-     |  (used when a live message arrives while the thread is open)
-     * ════════════════════════════════════════════════════════════════ */
     public function markRead(Request $request, $id)
     {
         $me           = $request->user()->id;
@@ -176,10 +155,6 @@ class ConversationController extends Controller
         ]);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-     |  Internals
-     * ════════════════════════════════════════════════════════════════ */
-
     private function createAndBroadcast(Conversation $conversation, User $sender, string $body): Message
     {
         $message = Message::create([
@@ -192,9 +167,6 @@ class ConversationController extends Controller
 
         $sender->loadMissing('detail');
 
-        // Realtime is best-effort — the message is already saved, so a Pusher
-        // hiccup must never 500 the request. The other side will see it on
-        // their next fetch instead.
         try {
             broadcast(new MessageSent(
                 $message,

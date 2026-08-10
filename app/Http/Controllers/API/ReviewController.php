@@ -51,7 +51,6 @@ use Illuminate\Support\Facades\Validator;
 class ReviewController extends Controller
 {
 
-
     public function adminIndex(Request $request)
     {
         $query = Review::with([
@@ -66,7 +65,6 @@ class ReviewController extends Controller
             $query->where('direction', $direction);
         }
 
-        // ?max_rating=2 → only show 1- and 2-star reviews (likely problem reviews)
         if ($request->filled('max_rating')) {
             $query->where('rating', '<=', (int) $request->get('max_rating'));
         }
@@ -110,9 +108,6 @@ class ReviewController extends Controller
             ],
         ]);
     }
-    // ═══════════════════════════════════════════════════════════
-    //  PUBLIC
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * GET /api/users/{id}/reviews
@@ -127,10 +122,6 @@ class ReviewController extends Controller
      */
     public function forUser(Request $request, $id)
     {
-        // IMPORTANT: do NOT constrain by role here. Previous versions had
-        //   User::where('role', 'instructor')->findOrFail($id)
-        // which 404'd whenever a studio's own profile tried to load its
-        // reviews. The user's role comes from the DB, not the URL.
         $user = User::find($id);
         if (!$user) {
             return ApiResponse::error('User not found.', [], 404);
@@ -148,7 +139,6 @@ class ReviewController extends Controller
 
         $reviews = $query->orderByDesc('created_at')->get();
 
-        // Summary: count, average, distribution
         $count = $reviews->count();
         $average = $count > 0
             ? round($reviews->avg('rating'), 1)
@@ -171,10 +161,6 @@ class ReviewController extends Controller
             ],
         ]);
     }
-
-    // ═══════════════════════════════════════════════════════════
-    //  AUTHENTICATED
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * POST /api/reviews
@@ -208,7 +194,6 @@ class ReviewController extends Controller
             return ApiResponse::error('You cannot review yourself.', [], 422);
         }
 
-        // Derive direction from roles
         $direction = null;
         if ($reviewer->role === 'studio' && $reviewee->role === 'instructor') {
             $direction = 'studio_to_instructor';
@@ -222,7 +207,6 @@ class ReviewController extends Controller
             );
         }
 
-        // Eligibility: must have an accepted application connecting them
         if (!$this->hasAcceptedRelationship($reviewer, $reviewee, $request->input('job_listing_id'))) {
             return ApiResponse::error(
                 'You can only review someone you\'ve worked with — an accepted job application is required.',
@@ -231,7 +215,6 @@ class ReviewController extends Controller
             );
         }
 
-        // Duplicate check (belt; the unique index is braces)
         $exists = Review::where('reviewer_id', $reviewer->id)
             ->where('reviewee_id', $reviewee->id)
             ->where('job_listing_id', $request->input('job_listing_id'))
@@ -255,7 +238,6 @@ class ReviewController extends Controller
                 'job_listing_id' => $request->input('job_listing_id'),
             ]);
         } catch (\Illuminate\Database\QueryException $e) {
-            // Race condition caught by the unique index
             if ($e->getCode() === '23000') {
                 return ApiResponse::error(
                     'You\'ve already reviewed this person for this listing.',
@@ -293,7 +275,6 @@ class ReviewController extends Controller
         $reason = $user->role === 'admin'
         ? trim((string) $request->input('reason', ''))
         : null;
-
 
         $review->delete();
 
@@ -334,7 +315,6 @@ class ReviewController extends Controller
         $user = Auth::user();
 
         if ($user->role === 'studio') {
-            // Studios can review instructors they've hired on their own listings
             $apps = JobApplication::with(['instructor:id,name,email,role', 'instructor.detail', 'jobListing:id,title,studio_id'])
                 ->where('status', 'accepted')
                 ->whereHas('jobListing', function ($q) use ($user) {
@@ -365,7 +345,6 @@ class ReviewController extends Controller
         }
 
         if ($user->role === 'instructor') {
-            // Instructors can review studios whose listings accepted them
             $apps = JobApplication::with(['jobListing.studio:id,name,email,role', 'jobListing.studio.detail'])
                 ->where('instructor_id', $user->id)
                 ->where('status', 'accepted')
@@ -396,10 +375,6 @@ class ReviewController extends Controller
         ]);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  PRIVATE HELPERS
-    // ═══════════════════════════════════════════════════════════
-
     /**
      * Check if reviewer has an accepted JobApplication connecting them
      * to reviewee. If a specific job_listing_id is provided, the check
@@ -410,15 +385,11 @@ class ReviewController extends Controller
         $query = JobApplication::where('status', 'accepted');
 
         if ($reviewer->role === 'studio' && $reviewee->role === 'instructor') {
-            // Accepted application where this instructor was hired on one
-            // of this studio's listings.
             $query->where('instructor_id', $reviewee->id)
                 ->whereHas('jobListing', function ($q) use ($reviewer) {
                     $q->where('studio_id', $reviewer->id);
                 });
         } elseif ($reviewer->role === 'instructor' && $reviewee->role === 'studio') {
-            // Accepted application where this instructor was hired on one
-            // of reviewee's listings.
             $query->where('instructor_id', $reviewer->id)
                 ->whereHas('jobListing', function ($q) use ($reviewee) {
                     $q->where('studio_id', $reviewee->id);

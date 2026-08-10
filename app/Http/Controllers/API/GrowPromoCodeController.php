@@ -21,8 +21,6 @@ class GrowPromoCodeController extends Controller
 {
     public function __construct(protected GrowPromoCodeService $promo) {}
 
-    // ── Admin ──────────────────────────────────────────────────
-
     /** GET /api/admin/grow-promo-codes */
     public function index()
     {
@@ -98,8 +96,6 @@ class GrowPromoCodeController extends Controller
         $pc = GrowPromoCode::find($id);
         if (!$pc) return ApiResponse::error('Grow promo code not found', [], 404);
 
-        // Keep a redeemed code on record (deactivate) rather than hard-delete,
-        // so historical grow_post_payments keep a valid FK.
         if ($pc->times_redeemed > 0) {
             $pc->update(['is_active' => false]);
             return ApiResponse::success('Grow promo code archived (it has been redeemed).', [
@@ -111,8 +107,6 @@ class GrowPromoCodeController extends Controller
         $pc->delete();
         return ApiResponse::success('Grow promo code deleted', ['id' => $id, 'softDelete' => false]);
     }
-
-    // ── Public ─────────────────────────────────────────────────
 
     /**
      * POST /api/grow-promo-codes/validate  { code, pricingTierId }

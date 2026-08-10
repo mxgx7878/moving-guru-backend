@@ -17,10 +17,6 @@ use Illuminate\Support\Facades\Validator;
 
 class ReportController extends Controller
 {
-    /* ════════════════════════════════════════════════════════════════
-     |  POST /reports — user files a report (message or profile)
-     |  Payload: { type, reason, reportedUserId, conversationId?, messageId?, details? }
-     * ════════════════════════════════════════════════════════════════ */
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -47,8 +43,6 @@ class ReportController extends Controller
         $conversationId = $request->input('conversationId');
         $messageId      = $request->input('messageId');
 
-        // If a conversation is referenced, the reporter must be part of it —
-        // stops anyone snapshotting a thread they're not in.
         if ($conversationId) {
             $conversation = Conversation::find($conversationId);
             if (!$conversation || !$conversation->hasParticipant($me->id)) {
@@ -56,8 +50,6 @@ class ReportController extends Controller
             }
         }
 
-        // Evidence snapshots — captured now so the report survives even if the
-        // message/conversation is later deleted by either party.
         $reportedMessage = null;
         if ($messageId) {
             $m = Message::find($messageId);
@@ -122,11 +114,6 @@ class ReportController extends Controller
         ], 201);
     }
 
-    /* ════════════════════════════════════════════════════════════════
-     |  ADMIN — endpoints ready; dashboard UI is the next phase.
-     * ════════════════════════════════════════════════════════════════ */
-
-    // GET /admin/reports?status=&reason=
     public function index(Request $request)
     {
         $reports = Report::with(['reporter', 'reportedUser'])
@@ -146,7 +133,6 @@ class ReportController extends Controller
         ]);
     }
 
-    // GET /admin/reports/{id}
     public function show($id)
     {
         $report = Report::with(['reporter', 'reportedUser'])->find($id);
@@ -156,7 +142,6 @@ class ReportController extends Controller
         return ApiResponse::success('Report loaded', ['report' => $report]);
     }
 
-    // PATCH /admin/reports/{id}/status  { status }
     public function updateStatus(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [

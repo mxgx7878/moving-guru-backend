@@ -48,7 +48,6 @@ class EmailBroadcastController extends Controller
         $audience = $request->input('audience');
         $isTest   = $request->boolean('send_test', false);
 
-        // ── Test mode — send only to the admin's own email ──
         if ($isTest) {
             try {
                 Mail::to($admin->email)->send(
@@ -71,7 +70,6 @@ class EmailBroadcastController extends Controller
             }
         }
 
-        // ── Real broadcast ── queue one job per recipient
         $recipients = $this->resolveAudience($audience);
         $count      = 0;
 

@@ -66,7 +66,6 @@ class GrowPromoCodeService
             ? (int) round($baseCents * ((float) $pc->discount_value) / 100)
             : (int) round(((float) $pc->discount_value) * 100);
 
-        // Never discount more than the base.
         $discountCents = max(0, min($discountCents, $baseCents));
         $finalCents    = $baseCents - $discountCents;
 

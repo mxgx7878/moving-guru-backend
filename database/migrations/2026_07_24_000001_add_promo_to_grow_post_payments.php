@@ -38,7 +38,6 @@ return new class extends Migration
     {
         Schema::table('grow_post_payments', function (Blueprint $table) {
             if (Schema::hasColumn('grow_post_payments', 'grow_promo_code_id')) {
-                // Drop FK before column when the constrained() index exists.
                 try { $table->dropForeign(['grow_promo_code_id']); } catch (\Throwable $e) {}
                 $table->dropColumn('grow_promo_code_id');
             }

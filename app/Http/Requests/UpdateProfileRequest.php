@@ -30,10 +30,8 @@ class UpdateProfileRequest extends FormRequest
     public function rules()
     {
         return [
-            // User table
             'name'             => 'sometimes|string|min:3',
 
-            // Common
             'bio'              => 'nullable|string|max:500',
             'plan'             => 'nullable|string',
             'location'         => 'nullable|string',
@@ -44,7 +42,6 @@ class UpdateProfileRequest extends FormRequest
             'openTo.*'         => 'string',
             'social_links'     => 'nullable|array',
 
-            // Media
             'profile_picture'  => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
             'background_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:10240',
             'gallery_photos'   => 'nullable|array',
@@ -52,7 +49,6 @@ class UpdateProfileRequest extends FormRequest
             'existing_gallery_photos'    => 'nullable|array|max:4',
             'existing_gallery_photos.*'  => 'string|max:10240',
 
-            // Instructor
             'age'              => 'nullable|integer|min:18|max:100',
             'pronouns'         => 'nullable|string',
             'studio'           => 'nullable|string',
@@ -66,7 +62,6 @@ class UpdateProfileRequest extends FormRequest
             'languages.*'      => 'string',
             'lookingFor'       => 'nullable|string',
 
-            // Studio
             'studioName'       => 'nullable|string',
             'contactName'      => 'nullable|string',
             'country'          => 'nullable|string',

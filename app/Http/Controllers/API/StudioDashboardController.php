@@ -28,7 +28,6 @@ class StudioDashboardController extends Controller
 
         $myJobIds = JobListing::where('studio_id', $studio->id)->pluck('id');
 
-        // ── KPIs ─────────────────────────────────────────────
         $activeListings = JobListing::where('studio_id', $studio->id)
             ->where('is_active', true)
             ->count();
@@ -43,13 +42,10 @@ class StudioDashboardController extends Controller
 
         $savedInstructors = SavedInstructor::where('studio_id', $studio->id)->count();
 
-        // Totally inactive instructors aren't useful as a "network" count —
-        // exclude suspended/rejected from the platform-wide instructor total
         $instructorsOnPlatform = User::where('role', 'instructor')
             ->where('status', 'active')
             ->count();
 
-        // ── Applications received — 6-month chart ────────────
         $applicationsByMonth = [];
         for ($i = 5; $i >= 0; $i--) {
             $monthStart = Carbon::now()->subMonths($i)->startOfMonth();
@@ -66,7 +62,6 @@ class StudioDashboardController extends Controller
             ];
         }
 
-        // ── Listing types breakdown (for the donut) ──────────
         $listings = JobListing::where('studio_id', $studio->id)->get(['id', 'type', 'types']);
         $hire = $swap = $energy = 0;
         foreach ($listings as $job) {
@@ -82,7 +77,6 @@ class StudioDashboardController extends Controller
             ['name' => 'Energy Exchange', 'value' => $energy, 'fill' => '#10B981'],
         ];
 
-        // ── Recent activity ──────────────────────────────────
         $recentApplications = JobApplication::with(['jobListing:id,title', 'instructor:id,name'])
             ->whereIn('job_listing_id', $myJobIds)
             ->latest()

@@ -21,7 +21,6 @@ class SendRenewalReminders extends Command
 
         $this->info("Looking for active subs renewing on: {$targetDate}");
 
-        // Get matching subs
         $subs = Subscription::with(['user', 'plan'])
             ->whereIn('status', ['active', 'trialing'])
             ->where('cancelAtPeriodEnd', false)
@@ -29,7 +28,6 @@ class SendRenewalReminders extends Command
             ->get();
 
         if ($debug) {
-            // Show ALL active subs to help diagnose why none matched
             $allActive = Subscription::with('user')
                 ->whereIn('status', ['active', 'trialing'])
                 ->get();

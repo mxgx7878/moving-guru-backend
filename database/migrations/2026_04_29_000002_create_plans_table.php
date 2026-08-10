@@ -26,8 +26,6 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        // Seed the three default plans. Replace `price_REPLACE_*` with the real
-        // Stripe Price IDs from your Stripe Dashboard once products are created.
         DB::table('plans')->insert([
             [
                 'id'             => 'monthly',

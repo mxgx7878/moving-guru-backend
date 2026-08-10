@@ -11,12 +11,10 @@ class ProfileService
         $userFields   = [];
         $detailFields = [];
 
-        // ── User table ─────────────────────────────────────────
         if (isset($data['name'])) {
             $userFields['name'] = $data['name'];
         }
 
-        // ── Media ──────────────────────────────────────────────
         if (isset($data['profile_picture']) && $data['profile_picture'] instanceof \Illuminate\Http\UploadedFile) {
             $path = $data['profile_picture']->store('profile_pictures', 'public');
             $detailFields['profile_picture'] = $generateUrl($path);
@@ -30,7 +28,6 @@ class ProfileService
 
             $gallery = [];
 
-            // 1. Keep URLs user didn't delete
             if (!empty($data['existing_gallery_photos']) && is_array($data['existing_gallery_photos'])) {
                 foreach ($data['existing_gallery_photos'] as $url) {
                     if (is_string($url) && $url !== '') {
@@ -39,7 +36,6 @@ class ProfileService
                 }
             }
 
-            // 2. Append new uploads
             if (!empty($data['gallery_photos']) && is_array($data['gallery_photos'])) {
                 foreach ($data['gallery_photos'] as $photo) {
                     if ($photo instanceof \Illuminate\Http\UploadedFile) {
@@ -56,17 +52,13 @@ class ProfileService
             );
         }
 
-        // ── Detail fields — all camelCase, direct mapping ──────
         $detailKeys = [
-            // Common
             'bio', 'plan', 'location', 'profileStatus',
             'disciplines', 'openTo',
-            // Instructor
             'age', 'pronouns', 'studio',
             'countryFrom', 'travelingTo',
             'availability', 'availableFrom', 'availableTo', 'flexibleDates',
             'languages', 'lookingFor',
-            // Studio
             'studioName', 'contactName', 'country', 'phone',
             'website', 'studioSize', 'instagram',
 
@@ -84,7 +76,6 @@ class ProfileService
             }
         }
 
-        // ── Persist ────────────────────────────────────────────
         if (!empty($userFields)) {
             $user->update($userFields);
         }

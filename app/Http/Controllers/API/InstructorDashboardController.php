@@ -17,8 +17,6 @@ class InstructorDashboardController extends Controller
     {
         $user = $request->user();
 
-        // ── KPIs ─────────────────────────────────────────────
-        // NOTE: profile_views table only has `viewed_at` (no created_at)
         $totalProfileViews = ProfileView::where('viewed_user_id', $user->id)->count();
         $thisMonthViews    = ProfileView::where('viewed_user_id', $user->id)
             ->where('viewed_at', '>=', Carbon::now()->startOfMonth())
@@ -35,7 +33,6 @@ class InstructorDashboardController extends Controller
         $avgRating   = Review::where('reviewee_id', $user->id)->avg('rating');
         $reviewCount = Review::where('reviewee_id', $user->id)->count();
 
-        // ── Profile views — last 6 months for the chart ──────
         $viewsByMonth = [];
         for ($i = 5; $i >= 0; $i--) {
             $monthStart = Carbon::now()->subMonths($i)->startOfMonth();
@@ -52,7 +49,6 @@ class InstructorDashboardController extends Controller
             ];
         }
 
-        // ── Applications by status (for pie/donut chart) ─────
         $applicationStatus = [
             ['name' => 'Pending',  'value' => (int) ($appsByStatus['pending']  ?? 0), 'fill' => '#F59E0B'],
             ['name' => 'Viewed',   'value' => (int) ($appsByStatus['viewed']   ?? 0), 'fill' => '#7F77DD'],
@@ -60,7 +56,6 @@ class InstructorDashboardController extends Controller
             ['name' => 'Rejected', 'value' => (int) ($appsByStatus['rejected'] ?? 0), 'fill' => '#CE4F56'],
         ];
 
-        // ── Recent activity (last 5 mixed events) ────────────
         $recentApplications = JobApplication::with(['jobListing:id,title,studio_id', 'jobListing.studio:id,name'])
             ->where('instructor_id', $user->id)
             ->latest()
@@ -74,7 +69,6 @@ class InstructorDashboardController extends Controller
                 'created_at' => $a->created_at,
             ]);
 
-        // Recent viewers — order by viewed_at, expose as `created_at` for frontend consistency
         $recentViewers = ProfileView::with('viewer:id,name,role')
             ->where('viewed_user_id', $user->id)
             ->latest('viewed_at')

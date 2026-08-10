@@ -64,9 +64,6 @@ class MessageSent implements ShouldBroadcastNow
                 'role'      => $this->sender->role,
                 'avatarUrl' => $detail?->profile_picture_url,
             ],
-            // Conversation summary from the RECIPIENT's perspective so a
-            // brand-new conversation can appear in their inbox without a
-            // refetch (participant = the sender).
             'conversation' => [
                 'id'          => (int) $this->message->conversationId,
                 'participant' => [

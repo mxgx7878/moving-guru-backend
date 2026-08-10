@@ -14,9 +14,6 @@ class GrowPostController extends Controller
 {
 
    
-    // ═══════════════════════════════════════════════════════════
-    //  PUBLIC — No auth required
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * GET /api/grow-posts
@@ -30,22 +27,18 @@ class GrowPostController extends Controller
             ->active()
             ->featuredFirst();
 
-        // Filter by type: training | retreat | event
         if ($request->filled('type')) {
             $query->where('type', $request->type);
         }
 
-        // Filter by location (partial match)
         if ($request->filled('location')) {
             $query->where('location', 'like', '%' . $request->location . '%');
         }
 
-        // Filter by discipline (JSON column contains value)
         if ($request->filled('discipline')) {
             $query->whereJsonContains('disciplines', $request->discipline);
         }
 
-        // Keyword search across title, description, location
         if ($request->filled('search')) {
             $q = $request->search;
             $query->where(function ($sub) use ($q) {
@@ -55,7 +48,6 @@ class GrowPostController extends Controller
             });
         }
 
-        // Date filters
         if ($request->filled('date_from')) {
             $query->where('date_to', '>=', $request->date_from);
         }
@@ -63,7 +55,6 @@ class GrowPostController extends Controller
             $query->where('date_from', '<=', $request->date_to);
         }
 
-        // Featured only (for homepage spotlight)
         if ($request->boolean('featured')) {
             $query->where('is_featured', true);
         }
@@ -96,10 +87,6 @@ class GrowPostController extends Controller
             'data'    => $post,
         ]);
     }
-
-    // ═══════════════════════════════════════════════════════════
-    //  AUTHENTICATED — Logged-in users only
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * GET /api/grow-posts/my
@@ -152,7 +139,6 @@ class GrowPostController extends Controller
             ], 422);
         }
 
-        // 🔥 Same as profile logic
         $generateUrl = fn($path) => config('app.url') . '/storage/app/public/' . $path;
 
         $imageUrls = [];
@@ -193,7 +179,6 @@ class GrowPostController extends Controller
                 'external_url' => $request->external_url,
                 'color'        => $request->color,
                 'status'       => 'pending',
-                // Payment is taken now; the purchased live period starts on approval.
                 'expires_at'   => null,
             ]);
 
@@ -335,14 +320,12 @@ class GrowPostController extends Controller
             ], 422);
         }
 
-        // 🔥 Same URL logic
         $generateUrl = fn($path) => config('app.url') . '/storage/app/public/' . $path;
 
         $newImages = null;
 
         if ($request->hasFile('cover_image') && $request->file('cover_image')->isValid()) {
 
-            // delete old image
             $existing = $post->images[0] ?? null;
 
             if ($existing) {
@@ -393,7 +376,6 @@ class GrowPostController extends Controller
             'images'       => $newImages,
         ], fn($v) => $v !== null));
 
-        // optional: always resubmit
         $post->update([
             'status' => 'pending',
             'rejection_reason' => null
@@ -421,10 +403,6 @@ class GrowPostController extends Controller
             'message' => 'Post deleted successfully.',
         ]);
     }
-
-    // ═══════════════════════════════════════════════════════════
-    //  ADMIN — Requires admin role middleware
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * GET /api/admin/grow-posts

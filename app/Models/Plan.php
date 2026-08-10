@@ -32,7 +32,6 @@ class Plan extends Model
         'discountMonths' => 'integer',
     ];
 
-    // Computed discount info auto-included in every API response.
     protected $appends = ['hasDiscount', 'discountedPrice'];
 
     public function planFeatures(): BelongsToMany
@@ -57,8 +56,6 @@ class Plan extends Model
     {
         return (int) $this->trialPeriodDays > 0;
     }
-
-    // ── Discount ────────────────────────────────────────────────
 
     public function getHasDiscountAttribute(): bool
     {

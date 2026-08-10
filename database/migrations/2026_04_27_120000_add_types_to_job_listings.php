@@ -21,7 +21,6 @@ return new class extends Migration {
             $table->json('types')->nullable()->after('type');
         });
 
-        // Backfill: each existing job becomes [type]
         DB::statement('UPDATE job_listings SET types = JSON_ARRAY(type) WHERE types IS NULL');
     }
 

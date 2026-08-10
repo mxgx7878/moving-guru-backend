@@ -6,9 +6,9 @@ use App\Helpers\ApiResponse;
 use App\Http\Controllers\Controller;
 use App\Models\GrowPost;
 use App\Models\JobListing;
-use App\Models\Payment;        // ← added: real revenue source
+use App\Models\Payment;
 use App\Models\Post;
-use App\Models\Subscription;   // ← added: real subscription counts
+use App\Models\Subscription;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -33,7 +33,6 @@ class AdminDashboardController extends Controller
         $thisMonthStart = Carbon::now()->startOfMonth();
         $lastMonthStart = Carbon::now()->subMonth()->startOfMonth();
 
-        // ── Users (instructors + studios) ────────────────────────
         $instructorsTotal = User::where('role', 'instructor')->count();
         $studiosTotal     = User::where('role', 'studio')->count();
 
@@ -47,21 +46,17 @@ class AdminDashboardController extends Controller
         $studiosLastMonth = User::where('role', 'studio')
             ->whereBetween('created_at', [$lastMonthStart, $thisMonthStart])->count();
 
-        // ── Grow posts — grouped status counts in one query ──────
         $growByStatus = GrowPost::selectRaw('status, COUNT(*) as c')
             ->groupBy('status')
             ->pluck('c', 'status');
 
-        // ── Job listings ─────────────────────────────────────────
         $jobsTotal  = JobListing::count();
         $jobsActive = JobListing::where('is_active', true)->count();
 
-        // ── Platform posts (announcements) ───────────────────────
         $postsByStatus = Post::selectRaw('status, COUNT(*) as c')
             ->groupBy('status')
             ->pluck('c', 'status');
 
-        // ── Subscriptions — REAL counts (was a hardcoded placeholder) ─
         $subsByStatus = Subscription::selectRaw('status, COUNT(*) as c')
             ->groupBy('status')
             ->pluck('c', 'status');
@@ -70,7 +65,6 @@ class AdminDashboardController extends Controller
             ->where('cancelledAt', '>=', $thisMonthStart)
             ->count();
 
-        // ── Signups per month (last 6) for the User Growth chart ──
         $signupsByMonth = [];
         for ($i = 5; $i >= 0; $i--) {
             $monthStart = Carbon::now()->subMonths($i)->startOfMonth();
@@ -126,15 +120,12 @@ class AdminDashboardController extends Controller
                 'draft'     => (int) ($postsByStatus['draft']     ?? 0),
             ],
 
-            // Real subscription counts pulled from the subscriptions table.
             'subscriptions' => [
                 'active'               => (int) ($subsByStatus['active']   ?? 0),
                 'trialing'             => (int) ($subsByStatus['trialing'] ?? 0),
                 'cancelled_this_month' => $cancelledThisMonth,
             ],
 
-            // Feeds the User Growth chart. This was computed before but never
-            // returned, so the chart always rendered empty — now included.
             'signups_by_month' => $signupsByMonth,
         ]);
     }
@@ -144,7 +135,6 @@ class AdminDashboardController extends Controller
      */
     public function activity()
     {
-        // Pending grow posts — attach author name as `posted_by` for the UI.
         $pendingGrow = GrowPost::with('user:id,name')
             ->where('status', 'pending')
             ->latest()
@@ -160,14 +150,11 @@ class AdminDashboardController extends Controller
                 ];
             });
 
-        // Recent signups — instructors + studios only (skip admins).
         $recentSignups = User::whereIn('role', ['instructor', 'studio'])
             ->latest()
             ->take(5)
             ->get(['id', 'name', 'email', 'role', 'created_at']);
 
-        // Recent job listings — flatten studio name so the frontend can
-        // display `j.studio_name || j.studio?.name`.
         $recentJobs = JobListing::with('studio:id,name')
             ->latest()
             ->take(5)
@@ -182,7 +169,6 @@ class AdminDashboardController extends Controller
                 ];
             });
 
-        // Recent subscriptions — now that billing is wired, return real rows.
         $recentSubscriptions = Subscription::with(['user:id,name', 'plan:id,name'])
             ->latest()
             ->take(5)
@@ -216,18 +202,13 @@ class AdminDashboardController extends Controller
     {
         $now = Carbon::now();
 
-        // Revenue is recognised when a payment is actually paid. Fall back to
-        // created_at for any paid row that somehow lacks a paidAt timestamp.
         $paidAt = 'COALESCE(paidAt, created_at)';
 
-        // Seed the running cumulative with everything paid BEFORE the 12-month
-        // window, so the "Lifetime" view starts from the true historical total.
         $windowStart = $now->copy()->subMonths(11)->startOfMonth();
         $cumulative  = (float) Payment::where('status', 'paid')
             ->whereRaw("{$paidAt} < ?", [$windowStart->toDateTimeString()])
             ->sum('amount');
 
-        // ── 12-month real breakdown ──────────────────────────────
         $months = [];
         for ($i = 11; $i >= 0; $i--) {
             $monthStart = $now->copy()->subMonths($i)->startOfMonth();
@@ -257,10 +238,8 @@ class AdminDashboardController extends Controller
         $thisMonthRevenue = $months[count($months) - 1]['revenue'];
         $lastMonthRevenue = $months[count($months) - 2]['revenue'];
 
-        // Lifetime total across ALL paid payments (any date).
         $totalRevenue = (float) Payment::where('status', 'paid')->sum('amount');
 
-        // ── Recent successful payments ───────────────────────────
         $recentPayments = Payment::with('user:id,name')
             ->where('status', 'paid')
             ->orderByRaw("{$paidAt} DESC")
@@ -276,15 +255,12 @@ class AdminDashboardController extends Controller
                 ];
             });
 
-        // Currency — whatever the most recent paid payment used.
         $currency = Payment::where('status', 'paid')
             ->orderByRaw("{$paidAt} DESC")
             ->value('currency') ?? 'USD';
 
         return ApiResponse::success('Dashboard revenue', [
             'total_revenue'     => round($totalRevenue, 2),
-            // MRR proxy = current-month collected revenue. Swap for a true
-            // active-subscription MRR calc later if you need strict MRR.
             'mrr'               => round($thisMonthRevenue, 2),
             'this_month'        => round($thisMonthRevenue, 2),
             'last_month'        => round($lastMonthRevenue, 2),
@@ -295,7 +271,7 @@ class AdminDashboardController extends Controller
             'monthly_breakdown' => $months,
             'recent_payments'   => $recentPayments,
             'currency'          => strtoupper($currency),
-            'mock'              => false, // real data now — hides the "demo" banner
+            'mock'              => false,
         ]);
     }
 

@@ -51,8 +51,6 @@ Route::get('users/{id}/reviews', [ReviewController::class, 'forUser'])->whereNum
 Route::get('plans', [PlanController::class, 'index']);
 Route::post('stripe/webhook', [StripeWebhookController::class, 'handle']);
 
-
-
 Route::middleware('auth:sanctum')->group(function () {
   Route::post('/logout', [AuthController::class, 'logout']);
   Route::get('/me', [AuthController::class, 'me']);
@@ -60,18 +58,15 @@ Route::middleware('auth:sanctum')->group(function () {
   Route::patch('/profile', [ProfileController::class, 'update']);
   Route::post('/password/change', [PasswordResetController::class, 'change']);
 
-  // Profile Views
   Route::post('/profile/{userId}/view', [ProfileViewController::class, 'store']);
   Route::get('/profile/views', [ProfileViewController::class, 'index']);
   Route::get('/profile/views/analytics', [ProfileViewController::class, 'analytics']);
-  // Grow Posts (instructor-facing)
   Route::get('grow-posts/my',        [GrowPostController::class, 'myPosts']);
   Route::post('grow-posts',           [GrowPostController::class, 'store']);
   Route::put('grow-posts/{id}',      [GrowPostController::class, 'update']);
   Route::delete('grow-posts/{id}',      [GrowPostController::class, 'destroy']);
   Route::post('grow-payments/intents',  [GrowPaymentController::class, 'createIntent']);
   Route::post('grow-payments/complete', [GrowPaymentController::class, 'completeIntent']);
-  //JOB LISTINGS & APPLICATIONS
   Route::get('jobs/mine',       [JobListingController::class, 'mine'])
     ->middleware(IsStudio::class);
   Route::post('jobs/{id}/apply',   [JobListingController::class, 'apply'])->whereNumber('id');
@@ -81,10 +76,8 @@ Route::middleware('auth:sanctum')->group(function () {
   Route::get('instructors/{id}',   [InstructorController::class, 'show'])->whereNumber('id');
   Route::get('studios/{id}',   [InstructorController::class, 'show'])->whereNumber('id');
 
-
   Route::get('instructors/saved',  [InstructorController::class, 'saved'])
     ->middleware(IsStudio::class);
-
 
   Route::post('reviews',           [ReviewController::class, 'store']);
   Route::delete('reviews/{id}',      [ReviewController::class, 'destroy'])->whereNumber('id');
@@ -98,7 +91,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
   
 
-    // Subscriptions
   Route::get  ('subscription',                 [SubscriptionController::class, 'show']);
   Route::post ('subscription/setup-intent',    [SubscriptionController::class, 'setupIntent']);
   Route::post ('subscription/payment-method',  [SubscriptionController::class, 'attachPaymentMethod']);
@@ -114,7 +106,6 @@ Route::middleware('auth:sanctum')->group(function () {
       [SubscriptionController::class, 'retryPayment'],
   );
 
-  // Payments
   Route::get  ('payments',              [PaymentController::class, 'index']);
   Route::get  ('payments/{id}/invoice', [PaymentController::class, 'invoice']);
 
@@ -161,9 +152,9 @@ Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(func
   Route::patch('users/{id}/verify',       [UserManagementController::class, 'verify'])->whereNumber('id');
   Route::delete('users/{id}',              [UserManagementController::class, 'destroy'])->whereNumber('id');
 
-  Route::get('jobs',                 [JobListingController::class, 'index']);           // ← reuse
-  Route::get('jobs/{id}',            [JobListingController::class, 'show'])->whereNumber('id');           // ← reuse
-  Route::get('jobs/{id}/applicants', [JobListingController::class, 'applicants'])->whereNumber('id');     // ← reuse (refactored)
+  Route::get('jobs',                 [JobListingController::class, 'index']);
+  Route::get('jobs/{id}',            [JobListingController::class, 'show'])->whereNumber('id');
+  Route::get('jobs/{id}/applicants', [JobListingController::class, 'applicants'])->whereNumber('id');
   Route::patch('jobs/{id}/activate',   [JobListingController::class, 'adminActivate'])->whereNumber('id');
   Route::patch('jobs/{id}/deactivate', [JobListingController::class, 'adminDeactivate'])->whereNumber('id');
   Route::delete('jobs/{id}',            [JobListingController::class, 'adminDestroy'])->whereNumber('id');
@@ -198,7 +189,6 @@ Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(func
   Route::patch ('promo-codes/{id}', [PromoCodeController::class, 'update'])->whereNumber('id');
   Route::delete('promo-codes/{id}', [PromoCodeController::class, 'destroy'])->whereNumber('id');
   
-  // Grow-only promo codes (separate pool from subscription promo codes).
   Route::get   ('grow-promo-codes',      [GrowPromoCodeController::class, 'index']);
   Route::post  ('grow-promo-codes',      [GrowPromoCodeController::class, 'store']);
   Route::patch ('grow-promo-codes/{id}', [GrowPromoCodeController::class, 'update'])->whereNumber('id');

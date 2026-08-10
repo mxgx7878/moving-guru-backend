@@ -10,12 +10,10 @@ class GrowPostSeeder extends Seeder
 {
     public function run(): void
     {
-        // Get existing seeded users — fallback to first user if not found
         $studio     = User::where('role', 'studio')->first();
         $instructor = User::where('role', 'instructor')->first();
         $admin      = User::where('role', 'admin')->first();
 
-        // If no users exist at all, abort with helpful message
         if (!$studio && !$instructor && !$admin) {
             $this->command->warn('⚠️  No users found. Run DatabaseSeeder first: php artisan db:seed');
             return;
@@ -26,7 +24,6 @@ class GrowPostSeeder extends Seeder
 
         DB::table('grow_posts')->insert([
 
-            // ── 1. TRAINING (featured) ─────────────────────────────
             [
                 'user_id'      => $studioId,
                 'type'         => 'training',
@@ -52,7 +49,6 @@ class GrowPostSeeder extends Seeder
                 'updated_at'   => now(),
             ],
 
-            // ── 2. RETREAT ─────────────────────────────────────────
             [
                 'user_id'      => $studioId,
                 'type'         => 'retreat',
@@ -78,7 +74,6 @@ class GrowPostSeeder extends Seeder
                 'updated_at'   => now(),
             ],
 
-            // ── 3. EVENT (featured) ────────────────────────────────
             [
                 'user_id'      => $instructorId,
                 'type'         => 'event',
@@ -104,7 +99,6 @@ class GrowPostSeeder extends Seeder
                 'updated_at'   => now(),
             ],
 
-            // ── 4. TRAINING ────────────────────────────────────────
             [
                 'user_id'      => $studioId,
                 'type'         => 'training',
@@ -130,7 +124,6 @@ class GrowPostSeeder extends Seeder
                 'updated_at'   => now(),
             ],
 
-            // ── 5. RETREAT ─────────────────────────────────────────
             [
                 'user_id'      => $instructorId,
                 'type'         => 'retreat',
@@ -156,7 +149,6 @@ class GrowPostSeeder extends Seeder
                 'updated_at'   => now(),
             ],
 
-            // ── 6. TRAINING (pending — to test admin approval flow) ─
             [
                 'user_id'      => $instructorId,
                 'type'         => 'training',
@@ -173,7 +165,7 @@ class GrowPostSeeder extends Seeder
                 'tags'         => json_encode(['Yoga Alliance', 'RYT-500', 'Residential']),
                 'images'       => json_encode([]),
                 'external_url' => 'https://rishikeshyogapeeth.com',
-                'status'       => 'pending',   // ← pending to test admin approval
+                'status'       => 'pending',
                 'is_featured'  => 0,
                 'color'        => '#E89560',
                 'expires_at'   => null,

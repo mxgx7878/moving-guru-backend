@@ -13,7 +13,6 @@ class AuthService
     {
         $generateUrl = fn($path) => config('app.url') . '/storage/app/public/' . $path;
 
-        // ── File uploads ───────────────────────────────────────
         $profilePicture  = null;
         $backgroundImage = null;
         $galleryPhotos   = [];
@@ -32,7 +31,6 @@ class AuthService
             }
         }
 
-        // ── Create user ────────────────────────────────────────
         $user = User::create([
             'name'     => $data['name'],
             'email'    => $data['email'],
@@ -41,7 +39,6 @@ class AuthService
             'status'   => 'pending_payment',
         ]);
 
-        // ── Build detail — all keys already camelCase ──────────
         $role       = $data['role'] ?? 'instructor';
         $detailData = [
             'bio'             => $data['bio']          ?? null,
@@ -110,7 +107,6 @@ class AuthService
             ], 403);
         }
 
-        // Rejected accounts can also be blocked
         if ($user->status === 'rejected') {
             return response()->json([
                 'success' => false,

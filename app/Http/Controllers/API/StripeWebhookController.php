@@ -30,8 +30,6 @@ class StripeWebhookController extends Controller
             return response('Invalid signature', 400);
         }
 
-        // Log::info('Stripe webhook received', ['type' => $event->type, 'id' => $event->id]);
-
         try {
             match ($event->type) {
                 'customer.subscription.created',
@@ -83,8 +81,6 @@ class StripeWebhookController extends Controller
 
  protected function onTrialWillEnd($sub): void
     {
-        // Trial-ending reminder email intentionally disabled.
-        // Sirf local subscription sync rakhte hain.
         $user = User::where('stripe_customer_id', $sub->customer)->first();
         if ($user) {
             $this->stripe->upsertLocalSubscription($user, null, $sub);
@@ -96,19 +92,12 @@ class StripeWebhookController extends Controller
         $subscriptionId = $this->subscriptionIdFromInvoice($invoice);
         $user = User::where('stripe_customer_id', $invoice->customer)->first();
 
-
-        // A paid subscription invoice restores access, including a successful
-        // retry after a past_due payment. Ignore unrelated one-off invoices.
         if ($user && $subscriptionId) {
             Subscription::where('stripeSubscriptionId', $subscriptionId)
                 ->update(['status' => 'active']);
             $this->stripe->syncUserAccessStatus($user, 'active');
         }
 
-
-        // Skip $0 trial-start invoices — Stripe creates these automatically when
-        // a trial begins. The user gets the TrialStartedNotification instead, so
-        // a "Payment confirmed for $0.00" email would be confusing.
         if ((int) ($invoice->amount_paid ?? 0) === 0 && (int) ($invoice->amount_due ?? 0) === 0) {
             Log::info('onInvoicePaid: skipping $0 trial invoice', ['invoice_id' => $invoice->id]);
             return;
@@ -152,7 +141,6 @@ class StripeWebhookController extends Controller
     {
         $subscriptionId = $this->subscriptionIdFromInvoice($invoice);
 
-        // 1. Record payment as failed
         try {
             $payment = $this->stripe->recordPaymentFromInvoice($invoice);
             $payment->forceFill(['status' => 'failed'])->save();
@@ -160,7 +148,6 @@ class StripeWebhookController extends Controller
             Log::warning('recordPaymentFromInvoice (failed) error', ['error' => $e->getMessage()]);
         }
 
-        // 2. Mark subscription as past_due — use new helper for API compatibility
         $sub = null;
         if ($subscriptionId) {
             $sub = Subscription::where('stripeSubscriptionId', $subscriptionId)

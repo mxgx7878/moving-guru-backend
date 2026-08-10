@@ -51,22 +51,19 @@ class JobListingController extends Controller
 
       private function resolveOptionalUser(Request $request): ?User
     {
-        // Happy path: route WAS behind auth:sanctum
         if ($user = $request->user()) {
             return $user;
         }
  
-        // Fallback: manually parse the Bearer token
         $token = $request->bearerToken();
         if (!$token) return null;
  
         $pat = PersonalAccessToken::findToken($token);
         if (!$pat) return null;
  
-        // Respect expiry if configured on the token
         if ($pat->expires_at && $pat->expires_at->isPast()) return null;
  
-        return $pat->tokenable; // the User model
+        return $pat->tokenable;
     }
     private const REAPPLY_LOCK_MONTHS = 3;
 
@@ -94,17 +91,12 @@ class JobListingController extends Controller
         return $app;
     }
 
-
     private function decorateCapacity(JobListing $job): JobListing
     {
         $job->positions_open = $job->positionsOpen();
         $job->is_full        = $job->isFull();
         return $job;
     }
-
-    // ═══════════════════════════════════════════════════════════
-    //  PUBLIC BROWSE
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * GET /api/jobs
@@ -129,8 +121,6 @@ public function index(Request $request)
         }
     }
 
-        // Public + instructor view is scoped to active listings.
-        // Admin sees everything and can filter explicitly.
         if (!$isAdmin) {
             $query->active();
         } elseif ($request->filled('status')) {
@@ -144,7 +134,6 @@ public function index(Request $request)
             }
         }
 
-        // Free-text search — admin also searches across studio name/email
         if ($search = trim((string) $request->get('search', $request->get('q', '')))) {
             $query->where(function ($q) use ($search, $isAdmin) {
                 $q->where('title',       'like', "%{$search}%")
@@ -155,8 +144,6 @@ public function index(Request $request)
                     $q->orWhereHas('studio', function ($sq) use ($search) {
                         $sq->where('name',  'like', "%{$search}%")
                            ->orWhere('email', 'like', "%{$search}%");
-                        // If users table has studio_name column, uncomment:
-                        // ->orWhere('studio_name', 'like', "%{$search}%")
                     });
                 }
             });
@@ -170,7 +157,6 @@ public function index(Request $request)
         default:          $query->orderBy('created_at', 'desc'); break;
         }
 
-        // Instructor-only: attach own applications so Apply button state works.
         $myAppsByJob = collect();
         if ($user && $user->role === 'instructor') {
             $myAppsByJob = JobApplication::where('instructor_id', $user->id)
@@ -225,10 +211,6 @@ public function index(Request $request)
         return ApiResponse::success('Job fetched', ['job' => $job]);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  STUDIO — MANAGE OWN LISTINGS
-    // ═══════════════════════════════════════════════════════════
-
     public function mine(Request $request)
     {
         $jobs = JobListing::with('studio')
@@ -282,7 +264,7 @@ public function index(Request $request)
         }
         if ($incoming) {
             $data['types'] = array_values(array_unique($incoming));
-            $data['type']  = $data['types'][0];   // primary type for legacy display
+            $data['type']  = $data['types'][0];
         }
 
         if ($request->hasFile('cover_image')) {
@@ -328,7 +310,6 @@ public function index(Request $request)
 
          $data = $validator->validated();
  
-        // Guard: you can't shrink vacancies below what's already been filled.
         if (isset($data['vacancies']) && $data['vacancies'] < $job->positions_filled) {
             return ApiResponse::error(
                 "Vacancies can't be lower than positions already filled ({$job->positions_filled}).",
@@ -343,11 +324,10 @@ public function index(Request $request)
         }
         if ($incoming) {
             $data['types'] = array_values(array_unique($incoming));
-            $data['type']  = $data['types'][0];   // primary type for legacy display
+            $data['type']  = $data['types'][0];
         }
 
         if ($request->hasFile('cover_image')) {
-    // Delete old file if it existed and was uploaded (not a remote URL)
         if ($job->cover_image && str_starts_with($job->cover_image, config('app.url'))) {
                 $relative = str_replace(config('app.url') . '/storage/app/public/', '', $job->cover_image);
                 Storage::disk('public')->delete($relative);
@@ -356,7 +336,6 @@ public function index(Request $request)
             $data['cover_image'] = rtrim(config('app.url'), '/') . '/storage/app/public/' . $path;
         }
 
-        // Allow explicit removal via cover_image=null in the payload
         if ($request->exists('cover_image') && !$request->hasFile('cover_image') &&
             in_array($request->input('cover_image'), [null, '', 'null'], true)) {
             $data['cover_image'] = null;
@@ -378,10 +357,6 @@ public function index(Request $request)
 
         return ApiResponse::success('Listing deleted', ['id' => (int) $id]);
     }
-
-    // ═══════════════════════════════════════════════════════════
-    //  INSTRUCTOR — APPLY / WITHDRAW
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * POST /api/jobs/{id}/apply
@@ -414,7 +389,6 @@ public function index(Request $request)
             ->where('instructor_id', $user->id)
             ->first();
 
-        // ── Reject lock ─────────────────────────────────────────
         if ($existing && $existing->status === 'rejected') {
             $unlock = $this->computeReapplyUnlock($existing);
             if ($unlock) {
@@ -429,7 +403,6 @@ public function index(Request $request)
                     409
                 );
             }
-            // Lock expired — allow re-apply by reviving the row
             $existing->update([
                 'status'      => 'pending',
                 'message'     => $request->input('message') ?: $existing->message,
@@ -440,12 +413,10 @@ public function index(Request $request)
             return ApiResponse::success('Application submitted', ['application' => $application], 201);
         }
 
-        // Already applied and still active
         if ($existing && !in_array($existing->status, ['withdrawn'])) {
             return ApiResponse::error('You have already applied to this listing.', [], 409);
         }
 
-        // Withdrawn previously → revive
         if ($existing && $existing->status === 'withdrawn') {
             $existing->update([
                 'status'      => 'pending',
@@ -456,7 +427,6 @@ public function index(Request $request)
             return ApiResponse::success('Application submitted', ['application' => $application], 201);
         }
 
-        // Fresh application
         $application = JobApplication::create([
             'job_listing_id' => $job->id,
             'instructor_id'  => $user->id,
@@ -499,16 +469,11 @@ public function index(Request $request)
         ]);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  STUDIO — REVIEW APPLICANTS
-    // ═══════════════════════════════════════════════════════════
-
  public function applicants(Request $request, $id)
     {
         $user = $request->user();
         $job  = JobListing::with('studio')->findOrFail($id);
 
-        // Authorization — admin OR the owning studio, nobody else.
         $isOwner = $user->role === 'studio' && $job->studio_id === $user->id;
         $isAdmin = $user->role === 'admin';
         if (!$isOwner && !$isAdmin) {
@@ -521,8 +486,6 @@ public function index(Request $request)
             ->latest()
             ->get();
 
-        // Auto-mark pending → viewed ONLY when the studio owner is looking.
-        // Admin moderation shouldn't mutate the studio's view state.
         if ($isOwner) {
             JobApplication::where('job_listing_id', $job->id)
                 ->where('status', 'pending')
@@ -564,14 +527,12 @@ public function index(Request $request)
         $oldStatus = $app->status;
         $job       = $app->jobListing;
  
-        // Short-circuit: no state change, no DB writes.
         if ($newStatus === $oldStatus) {
             return ApiResponse::success('No change', [
                 'application' => $this->decorateApplication($app),
             ]);
         }
  
-        // Guard: can't accept more applicants than remaining vacancies.
         if ($newStatus === 'accepted' && $oldStatus !== 'accepted') {
             if ($job->isFull()) {
                 return ApiResponse::error(
@@ -583,29 +544,23 @@ public function index(Request $request)
         }
  
         DB::transaction(function () use (&$app, $job, $newStatus, $oldStatus) {
-            // 1) Update the application row
             $update = ['status' => $newStatus];
             $update['viewed_at']   = $app->viewed_at ?? now();
             $update['rejected_at'] = $newStatus === 'rejected' ? now() : null;
             $app->update($update);
  
-            // 2) Adjust the listing's filled counter based on the transition
             $wasAccepted = $oldStatus === 'accepted';
             $nowAccepted = $newStatus === 'accepted';
  
             if (!$wasAccepted && $nowAccepted) {
                 $job->increment('positions_filled');
             } elseif ($wasAccepted && !$nowAccepted) {
-                // Un-accepting (e.g. studio clicks decline after a mis-click).
                 $job->decrement('positions_filled');
-                // If the listing was auto-closed because it was full, reopen it
-                // — otherwise respect whatever state the studio set manually.
                 if (!$job->is_active && $job->positions_filled < $job->vacancies) {
                     $job->update(['is_active' => true]);
                 }
             }
  
-            // 3) Auto-close when full
             $job->refresh();
             if ($job->is_active && $job->isFull()) {
                 $job->update(['is_active' => false]);
@@ -618,7 +573,6 @@ public function index(Request $request)
             'application' => $this->decorateApplication($app),
         ]);
     }
-
 
       public function adminActivate($id)
     {

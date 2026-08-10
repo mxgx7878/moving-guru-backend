@@ -28,13 +28,11 @@ class AuthController extends Controller
         ]);
 
         $data = $request->validate([
-            // Core
             'role' => 'nullable|string|in:instructor,studio',
             'name' => 'required|string|min:3',
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
 
-            // Common
             'bio' => 'nullable|string|max:500',
             'profileStatus' => 'nullable|string',
             'plan' => 'nullable|string',
@@ -49,7 +47,6 @@ class AuthController extends Controller
             'gallery_photos.*' => 'image|mimes:jpg,jpeg,png,webp|max:10240',
             'social_links' => 'nullable|array',
 
-            // Instructor
             'age' => 'nullable|required_if:role,instructor|integer|min:16|max:100',
             'pronouns' => 'nullable|string',
             'studio' => 'nullable|string',
@@ -63,7 +60,6 @@ class AuthController extends Controller
             'languages.*' => 'string',
             'lookingFor' => 'nullable|string',
 
-            // Studio
             'studioName' => 'nullable|string',
             'contactName' => 'nullable|string',
             'country' => 'nullable|string',
@@ -93,7 +89,6 @@ class AuthController extends Controller
         return ApiResponse::success('Login successful', $result);
     }
 
-    // me() — loads detail so flattenUser() works in Redux
     public function me(Request $request)
     {
         $user = $request->user()->load('detail');

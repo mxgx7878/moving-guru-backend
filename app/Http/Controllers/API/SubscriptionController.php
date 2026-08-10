@@ -184,7 +184,6 @@ class SubscriptionController extends Controller
             ->firstWhere('isDefault', true);
 
         return ApiResponse::success('Payment methods', [
-            // Keep the singular field temporarily for older frontend builds.
             'paymentMethod' => $defaultPaymentMethod,
             'paymentMethods' => $paymentMethods,
             'defaultPaymentMethodId' => $request->user()->default_payment_method_id,

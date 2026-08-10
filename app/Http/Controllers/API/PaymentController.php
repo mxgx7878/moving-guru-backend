@@ -22,8 +22,6 @@ class PaymentController extends Controller
                 'plan'             => $p->subscription?->plan?->name ?? 'Subscription',
                 'amount'           => (float) $p->amount,
                 'currency'         => $p->currency,
-                // Use Stripe's exact status — webhook stores it raw
-                // (paid, failed, pending, refunded, uncollectible, etc.)
                 'status'           => $p->status,
                 'date'             => $p->paidAt?->format('d M Y') ?? '—',
                 'invoice'          => $p->stripeInvoiceId ?? '—',

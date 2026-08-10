@@ -12,7 +12,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
     }
 
     /**
@@ -20,11 +19,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Build the password-reset link that goes into the email.
-        // IMPORTANT: this path MUST match the React route in App.jsx
-        // (`/reset-password`), otherwise the emailed link 404s.
-        // Falls back to app.url if FRONTEND_URL isn't configured, so the
-        // link is never domain-less.
         ResetPassword::createUrlUsing(function (object $notifiable, string $token) {
             $frontend = rtrim(config('app.frontend_url', config('app.url')), '/');
  

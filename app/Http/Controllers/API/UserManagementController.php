@@ -33,14 +33,10 @@ use Illuminate\Support\Facades\Artisan;
  */
 class UserManagementController extends Controller
 {
-    // ═══════════════════════════════════════════════════════════
-    //  LIST
-    // ═══════════════════════════════════════════════════════════
     public function index(Request $request)
     {
         $query = User::with('detail')->whereIn('role', ['instructor', 'studio']);
 
-        // Filters
         if ($role = $request->query('role')) {
             $query->where('role', $role);
         }
@@ -99,9 +95,6 @@ class UserManagementController extends Controller
         ]);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  SHOW — detail with stats
-    // ═══════════════════════════════════════════════════════════
     public function show($id)
     {
         $user = User::with('detail')->find($id);
@@ -112,9 +105,6 @@ class UserManagementController extends Controller
         ]);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  CREATE — admin manually onboards a user
-    // ═══════════════════════════════════════════════════════════
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -150,7 +140,6 @@ class UserManagementController extends Controller
                 'approved_by' => ($data['status'] ?? 'active') === 'active' ? Auth::id() : null,
             ]);
 
-            // Always create a matching detail row so the profile page works
             $user->detail()->create([
                 'bio'           => $data['bio']      ?? null,
                 'location'      => $data['location'] ?? null,
@@ -168,9 +157,6 @@ class UserManagementController extends Controller
         ], 201);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  UPDATE — admin edits user
-    // ═══════════════════════════════════════════════════════════
     public function update(Request $request, $id)
     {
         $user = User::with('detail')->find($id);
@@ -194,11 +180,9 @@ class UserManagementController extends Controller
         $data = $validator->validated();
 
         DB::transaction(function () use ($user, $data) {
-            // User-level fields
             $userFields = array_intersect_key($data, array_flip(['name', 'email', 'status', 'is_verified']));
             if (!empty($userFields)) $user->update($userFields);
 
-            // Detail-level fields
             $detail = $user->detail ?: $user->detail()->create([]);
             $detailFields = [];
             if (array_key_exists('bio',         $data)) $detailFields['bio']        = $data['bio'];
@@ -212,10 +196,6 @@ class UserManagementController extends Controller
             'user' => $this->transformUser($user->fresh('detail'), withStats: true),
         ]);
     }
-
-    // ═══════════════════════════════════════════════════════════
-    //  LIFECYCLE ACTIONS
-    // ═══════════════════════════════════════════════════════════
 
     public function approve($id)
     {
@@ -257,7 +237,6 @@ class UserManagementController extends Controller
             'rejection_reason' => $request->input('reason'),
         ]);
 
-        // Revoke any issued tokens so they can't still use the app
         $user->tokens()->delete();
 
         return ApiResponse::success('Registration rejected', [
@@ -344,9 +323,6 @@ class UserManagementController extends Controller
         return ApiResponse::success('User deleted', ['id' => (int) $id]);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  TRANSFORM — flatten user+detail into the shape the admin UI expects
-    // ═══════════════════════════════════════════════════════════
     private function transformUser(User $user, bool $withStats = false): array
     {
         $d = $user->detail;
@@ -364,12 +340,10 @@ class UserManagementController extends Controller
             'profile_picture'    => $d?->profile_picture,
             'background_image'   => $d?->background_image,
 
-            // Lifecycle
             'status'             => $user->status,
             'is_active'          => $user->status === 'active',
             'is_verified'        => (bool) $user->is_verified,
 
-            // Timestamps
             'approved_at'        => $user->approved_at?->toIso8601String(),
             'suspended_at'       => $user->suspended_at?->toIso8601String(),
             'suspension_reason'  => $user->suspension_reason,
@@ -396,7 +370,6 @@ class UserManagementController extends Controller
             'jobs_count'         => 0,
         ];
 
-        // Grow posts — shared between roles
         if (Schema::hasTable('grow_posts')) {
             $stats['grow_posts_count'] = DB::table('grow_posts')
                 ->where('user_id', $user->id)->count();

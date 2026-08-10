@@ -1,7 +1,4 @@
 <?php
-// ============================================================
-// app/Models/UserDetail.php
-// ============================================================
 
 namespace App\Models;
 
@@ -11,16 +8,13 @@ class UserDetail extends Model
 {
     protected $fillable = [
         'user_id',
-        // Common
         'bio', 'profileStatus', 'plan', 'location',
         'disciplines', 'openTo', 'social_links',
         'profile_picture', 'background_image', 'gallery_photos',
-        // Instructor
         'age', 'pronouns', 'studio',
         'countryFrom', 'travelingTo',
         'availability', 'availableFrom', 'availableTo', 'flexibleDates',
         'languages', 'lookingFor',
-        // Studio
         'studioName', 'contactName', 'country', 'phone',
         'website', 'studioSize', 'instagram',
          'hiring_role_description',

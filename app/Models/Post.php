@@ -20,13 +20,10 @@ class Post extends Model
         'published_at' => 'datetime',
     ];
 
-    // ─── Relationships ───────────────────────────────────────
     public function author(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
     }
-
-    // ─── Scopes ──────────────────────────────────────────────
 
     /** Only posts that are live on the platform. */
     public function scopePublished($q)
@@ -37,8 +34,6 @@ class Post extends Model
     /** Posts visible to a given user role — 'all' OR their specific audience. */
     public function scopeForRole($q, string $role)
     {
-        // Map role → audience bucket. Admins see everything, so callers
-        // should skip this scope entirely for admins.
         $audience = match ($role) {
             'instructor' => 'instructors',
             'studio'     => 'studios',

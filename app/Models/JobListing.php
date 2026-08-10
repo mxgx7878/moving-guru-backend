@@ -13,7 +13,7 @@ class JobListing extends Model
     protected $fillable = [
         'studio_id',
         'title',
-        'type',                  // primary (= types[0]) — kept for backward compat
+        'type',
         'types',         
         'role_type',
         'description',
@@ -39,13 +39,8 @@ class JobListing extends Model
         'positions_filled' => 'integer',
     ];
 
-    // ── Relationships ───────────────────────────────────────────
-
     public function studio(): BelongsTo
     {
-        // Eager-loads the studio's detail (studioName, location, avatar) so
-        // the instructor-facing list can render a studio card without an
-        // extra round-trip.
         return $this->belongsTo(User::class, 'studio_id')
                     ->select(['id', 'name', 'email', 'role'])
                     ->with('detail');
@@ -55,8 +50,6 @@ class JobListing extends Model
     {
         return $this->hasMany(JobApplication::class, 'job_listing_id');
     }
-
-    // ── Scopes ──────────────────────────────────────────────────
 
     /** Only listings that are switched on by the studio. */
     public function scopeActive($query)

@@ -26,9 +26,6 @@ use Illuminate\Support\Facades\Validator;
  */
 class PostController extends Controller
 {
-    // ═══════════════════════════════════════════════════════════
-    //  PUBLIC / AUTHENTICATED
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * GET /api/posts
@@ -85,10 +82,6 @@ class PostController extends Controller
 
         return ApiResponse::success('Announcement fetched', ['post' => $post]);
     }
-
-    // ═══════════════════════════════════════════════════════════
-    //  ADMIN
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * GET /api/admin/posts
@@ -157,7 +150,6 @@ class PostController extends Controller
 
         $data = $validator->validated();
 
-        // Event posts must have a date.
         if ($data['type'] === 'event' && empty($data['event_date'])) {
             return ApiResponse::error(
                 'Event date is required for event posts.', [], 422
@@ -187,7 +179,6 @@ class PostController extends Controller
 
         $data = $validator->validated();
 
-        // If switching to event type, enforce date requirement.
         $type = $data['type'] ?? $post->type;
         $eventDate = $data['event_date'] ?? $post->event_date;
         if ($type === 'event' && empty($eventDate)) {

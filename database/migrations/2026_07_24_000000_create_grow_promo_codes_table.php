@@ -24,10 +24,10 @@ return new class extends Migration
         Schema::create('grow_promo_codes', function (Blueprint $table) {
             $table->id();
             $table->string('code', 64)->unique();
-            $table->string('discount_type', 10);          // 'percent' | 'fixed'
-            $table->decimal('discount_value', 10, 2);      // percent (0-100) or fixed major units
-            $table->string('currency', 3)->nullable();     // only meaningful for fixed
-            $table->unsignedInteger('max_redemptions')->nullable(); // null = unlimited
+            $table->string('discount_type', 10);
+            $table->decimal('discount_value', 10, 2);
+            $table->string('currency', 3)->nullable();
+            $table->unsignedInteger('max_redemptions')->nullable();
             $table->unsignedInteger('times_redeemed')->default(0);
             $table->timestamp('expires_at')->nullable();
             $table->boolean('is_active')->default(true);

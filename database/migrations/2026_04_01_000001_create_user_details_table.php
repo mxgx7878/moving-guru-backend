@@ -32,7 +32,6 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        // Add role to users table
         Schema::table('users', function (Blueprint $table) {
             $table->string('role')->default('client')->after('password');
         });

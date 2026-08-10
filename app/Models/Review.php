@@ -12,8 +12,8 @@ class Review extends Model
     protected $fillable = [
         'reviewer_id',
         'reviewee_id',
-        'direction',       // studio_to_instructor | instructor_to_studio
-        'rating',          // 1..5
+        'direction',
+        'rating',
         'comment',
         'job_listing_id',
     ];
@@ -21,8 +21,6 @@ class Review extends Model
     protected $casts = [
         'rating' => 'integer',
     ];
-
-    // ── Relationships ────────────────────────────────────────────
 
     public function reviewer(): BelongsTo
     {
@@ -42,8 +40,6 @@ class Review extends Model
     {
         return $this->belongsTo(JobListing::class, 'job_listing_id');
     }
-
-    // ── Scopes ───────────────────────────────────────────────────
 
     public function scopeForReviewee($query, int $userId)
     {

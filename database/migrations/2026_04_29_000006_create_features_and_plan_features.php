@@ -9,7 +9,6 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // 1. Master features table — defined once
         Schema::create('features', function (Blueprint $table) {
             $table->id();
             $table->string('key', 64)->unique();
@@ -20,7 +19,6 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        // Seed the 9 features
         DB::table('features')->insert([
             ['key' => 'profile_visibility', 'label' => 'Profile Visibility',  'description' => 'Appear in studio search results',           'role' => 'instructor', 'sortOrder' => 1, 'created_at' => now(), 'updated_at' => now()],
             ['key' => 'job_applications',   'label' => 'Apply to Jobs',       'description' => 'Apply for studio job listings',             'role' => 'instructor', 'sortOrder' => 2, 'created_at' => now(), 'updated_at' => now()],
@@ -33,7 +31,6 @@ return new class extends Migration
             ['key' => 'reviews',            'label' => 'Reviews',             'description' => 'Give and receive reviews',                  'role' => 'both',       'sortOrder' => 9, 'created_at' => now(), 'updated_at' => now()],
         ]);
 
-        // 2. Pivot table — references feature ID, not duplicated keys
         Schema::create('plan_features', function (Blueprint $table) {
             $table->string('planId', 32);
             $table->foreignId('featureId')->constrained('features')->onDelete('cascade');
@@ -41,7 +38,6 @@ return new class extends Migration
             $table->foreign('planId')->references('id')->on('plans')->onDelete('cascade');
         });
 
-        // Seed: every plan gets every feature by default. Admin unchecks per plan.
         $planIds    = DB::table('plans')->pluck('id');
         $featureIds = DB::table('features')->pluck('id');
         $rows = [];

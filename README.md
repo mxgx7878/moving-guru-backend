@@ -1,61 +1,389 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Moving Guru — Backend API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Backend REST API for **Moving Guru**, a platform that connects movement/yoga
+**instructors** and **studios**. It powers user accounts, profiles, job
+listings and applications, reviews, in-app messaging, "Grow" promotional
+posts, subscriptions and one-off payments, promo codes, moderation reports,
+and an admin dashboard.
 
-## About Laravel
+Built with **Laravel 12** and served as a token-authenticated JSON API
+(Laravel Sanctum). A separate frontend application consumes this API.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Table of Contents
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+1. [Tech Stack](#tech-stack)
+2. [Requirements](#requirements)
+3. [Getting Started](#getting-started)
+4. [Environment Configuration](#environment-configuration)
+5. [Database & Seeding](#database--seeding)
+6. [Running the Application](#running-the-application)
+7. [Queues & Scheduled Tasks](#queues--scheduled-tasks)
+8. [Testing](#testing)
+9. [Third-Party Integrations](#third-party-integrations)
+10. [Project Structure](#project-structure)
+11. [Deployment Notes](#deployment-notes)
+12. [Troubleshooting](#troubleshooting)
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Tech Stack
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+| Area              | Technology                                   |
+| ----------------- | -------------------------------------------- |
+| Framework         | Laravel 12 (PHP 8.2+)                         |
+| Authentication    | Laravel Sanctum (API tokens)                 |
+| Database          | MySQL 8+ (SQLite used for the test suite)    |
+| Payments          | Stripe                                       |
+| Accounting        | Xero (OAuth2)                                |
+| Real-time         | Pusher (broadcasting for messaging)          |
+| Mail              | SMTP (any provider; Gmail SMTP by default)   |
+| Frontend assets   | Vite + Tailwind CSS 4                        |
+| Testing           | Pest / PHPUnit                               |
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+## Requirements
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+Make sure the following are installed on the host machine:
 
-### Premium Partners
+- **PHP 8.2 or higher** with the standard Laravel extensions
+  (`pdo_mysql`, `mbstring`, `openssl`, `tokenizer`, `xml`, `ctype`,
+  `json`, `bcmath`, `fileinfo`, `curl`, `gd`)
+- **Composer 2**
+- **MySQL 8+** (or MariaDB 10.6+)
+- **Node.js 18+** and **npm** (only needed to build frontend assets)
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+---
 
-## Contributing
+## Getting Started
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Clone the repository and run the following from the project root.
 
-## Code of Conduct
+```bash
+# 1. Install PHP dependencies
+composer install
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+# 2. Install Node dependencies (for asset building)
+npm install
 
-## Security Vulnerabilities
+# 3. Create your environment file
+cp .env.example .env
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+# 4. Generate the application key
+php artisan key:generate
 
-## License
+# 5. Create the database (see "Database & Seeding" below), then run migrations
+php artisan migrate
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+# 6. (Optional) Seed demo data
+php artisan db:seed
+
+# 7. Link the public storage directory (for uploaded images/files)
+php artisan storage:link
+```
+
+After this, open `.env` and fill in the values described in the next section.
+
+---
+
+## Environment Configuration
+
+All configuration lives in the `.env` file. The keys below are the ones you
+most likely need to set for a working deployment. Start from `.env.example`,
+which already contains sensible local defaults.
+
+### Application
+
+| Key             | Description                                              |
+| --------------- | -------------------------------------------------------- |
+| `APP_NAME`      | Application name (default `MovingGuru`).                 |
+| `APP_ENV`       | `local`, `staging`, or `production`.                     |
+| `APP_KEY`       | Auto-generated by `php artisan key:generate`.            |
+| `APP_DEBUG`     | `true` for local, **`false` in production**.             |
+| `APP_URL`       | Base URL of this API (e.g. `https://api.movingguru.co`). |
+| `FRONTEND_URL`  | URL of the frontend app (used in emails / CORS).         |
+
+### Database
+
+| Key            | Description                          |
+| -------------- | ------------------------------------ |
+| `DB_CONNECTION`| `mysql`                              |
+| `DB_HOST`      | Database host (e.g. `127.0.0.1`).    |
+| `DB_PORT`      | Database port (default `3306`).      |
+| `DB_DATABASE`  | Database name (e.g. `moving_guru`).  |
+| `DB_USERNAME`  | Database user.                       |
+| `DB_PASSWORD`  | Database password.                   |
+
+### Mail (SMTP)
+
+Configure a real SMTP account so the app can send registration, password
+reset, and notification emails.
+
+```env
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=your-smtp-username
+MAIL_PASSWORD=your-smtp-password
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS="noreply@movingguru.co"
+MAIL_FROM_NAME="${APP_NAME}"
+```
+
+### Payments — Stripe
+
+```env
+STRIPE_SECRET=sk_live_or_test_key
+```
+
+The Stripe webhook endpoint is exposed at `POST /api/stripe/webhook`. Point
+your Stripe dashboard webhook at this URL.
+
+### Accounting — Xero (optional)
+
+```env
+XERO_CLIENT_ID=
+XERO_CLIENT_SECRET=
+XERO_REDIRECT_URI=
+```
+
+### Livegroup Payments (optional)
+
+```env
+LIVEGROUP_MERCHANT_ID=
+LIVEGROUP_API_KEY=
+LIVEGROUP_BASE_URL=
+```
+
+### Real-time Messaging — Pusher (optional)
+
+In-app messaging can broadcast events in real time. By default
+`BROADCAST_CONNECTION=log` (no external service). To enable live updates, set
+`BROADCAST_CONNECTION=pusher` and provide your Pusher credentials
+(`PUSHER_APP_ID`, `PUSHER_APP_KEY`, `PUSHER_APP_SECRET`, `PUSHER_APP_CLUSTER`).
+
+### File Storage
+
+Uploaded profile pictures, galleries, and post images use the configured
+filesystem disk (`FILESYSTEM_DISK`, default `local`). Run
+`php artisan storage:link` so uploads are publicly accessible. For production,
+you can switch to S3 by filling in the `AWS_*` variables and setting
+`FILESYSTEM_DISK=s3`.
+
+---
+
+## Database & Seeding
+
+1. Create an empty database that matches your `.env` (`DB_DATABASE`):
+
+   ```sql
+   CREATE DATABASE moving_guru CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   ```
+
+2. Run the migrations:
+
+   ```bash
+   php artisan migrate
+   ```
+
+3. (Optional) Seed demo users and content:
+
+   ```bash
+   php artisan db:seed
+   ```
+
+   > The `GrowPostSeeder` depends on seeded users. Run the full `db:seed`
+   > (which runs `DatabaseSeeder` first) rather than the Grow seeder alone.
+
+To reset the database from scratch during development:
+
+```bash
+php artisan migrate:fresh --seed
+```
+
+---
+
+## Running the Application
+
+### Quick start (development server)
+
+```bash
+php artisan serve
+```
+
+The API is then available at `http://localhost:8000`. All API routes are
+prefixed with `/api` (for example `POST http://localhost:8000/api/login`).
+
+### All-in-one development environment
+
+The project ships with a convenience script that runs the web server, the
+queue worker, and the Vite dev server together:
+
+```bash
+composer run dev
+```
+
+### Building frontend assets
+
+```bash
+npm run dev     # watch mode for local development
+npm run build   # production build
+```
+
+---
+
+## Queues & Scheduled Tasks
+
+Some work (such as broadcast emails) is dispatched to the queue. The queue
+connection is controlled by `QUEUE_CONNECTION` in `.env` (default `sync`,
+which runs jobs immediately). For asynchronous processing set it to
+`database` (or `redis`) and run a worker:
+
+```bash
+php artisan queue:work
+```
+
+The application also defines scheduled tasks (in `routes/console.php`):
+
+- `users:auto-deactivate-stale` — daily at 03:00
+- `subscriptions:renewal-reminders` — daily at 09:00
+- a periodic queue drain
+
+To run the scheduler in production, add a single cron entry that calls the
+Laravel scheduler every minute:
+
+```cron
+* * * * * cd /path-to-project && php artisan schedule:run >> /dev/null 2>&1
+```
+
+---
+
+## Testing
+
+Tests run against an in-memory / SQLite database and do not touch your MySQL
+data.
+
+```bash
+# Run the full test suite
+php artisan test
+
+# Or via the composer script (clears config first)
+composer test
+```
+
+---
+
+## Third-Party Integrations
+
+| Integration | Purpose                                             | Config keys                         |
+| ----------- | --------------------------------------------------- | ----------------------------------- |
+| Stripe      | Subscriptions, one-off & Grow-post payments, refunds| `STRIPE_SECRET`                     |
+| Xero        | Accounting / invoice sync (OAuth2)                  | `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET`, `XERO_REDIRECT_URI` |
+| Livegroup   | Alternate payment gateway                           | `LIVEGROUP_MERCHANT_ID`, `LIVEGROUP_API_KEY`, `LIVEGROUP_BASE_URL` |
+| Pusher      | Real-time messaging broadcast                       | `PUSHER_*`                          |
+| SMTP Mail   | Transactional email                                 | `MAIL_*`                            |
+
+Any integration whose keys are left blank is simply inactive — the rest of
+the API continues to work.
+
+---
+
+## Project Structure
+
+```
+app/
+├── Console/Commands/     Scheduled/console commands (stale users, reminders)
+├── Events/               Broadcastable events (e.g. new messages)
+├── Helpers/              Shared helpers (e.g. ApiResponse)
+├── Http/
+│   ├── Controllers/API/  All REST API endpoints
+│   ├── Middleware/        Auth/role guards (IsAdmin, IsStudio, subscription…)
+│   └── Requests/          Form request validation
+├── Jobs/                 Queued jobs (e.g. SendBroadcastEmail)
+├── Mail/                 Mailables
+├── Models/               Eloquent models (User, JobListing, GrowPost, …)
+├── Notifications/        Notifications
+├── Providers/            Service providers
+└── Services/             Business logic (Auth, Stripe, Profile, PromoCode…)
+
+config/        Framework & package configuration
+database/
+├── migrations/   Schema definitions
+├── factories/    Model factories
+└── seeders/      Demo data seeders
+routes/
+├── api.php       API routes (all under the /api prefix)
+├── channels.php  Broadcast channel authorization
+└── console.php   Scheduled tasks & console commands
+tests/           Pest/PHPUnit tests
+```
+
+### Key domains
+
+- **Auth & Profiles** — registration/login (instructor, studio, admin roles),
+  password reset, profile management, profile view analytics.
+- **Jobs** — studios post job listings; instructors apply.
+- **Reviews** — two-directional reviews between studios and instructors.
+- **Grow Posts** — promotional listings (trainings, retreats, events) with
+  tiers, payments, and promo codes; supports public (guest) purchase flows.
+- **Messaging** — conversations and messages, optionally broadcast in
+  real time.
+- **Subscriptions & Payments** — Stripe-backed plans, features, invoices,
+  and promo codes.
+- **Reports** — user/message moderation reports.
+- **Admin** — dashboard, user management, plan/feature management, promo
+  codes, and email broadcasts.
+
+---
+
+## Deployment Notes
+
+Checklist for a production deployment:
+
+1. Set `APP_ENV=production` and `APP_DEBUG=false`.
+2. Provide a strong, unique `APP_KEY` (`php artisan key:generate`).
+3. Configure the production database and run `php artisan migrate --force`.
+4. Fill in real Stripe, mail, and any other integration credentials.
+5. Cache configuration and routes for performance:
+
+   ```bash
+   php artisan config:cache
+   php artisan route:cache
+   php artisan view:cache
+   ```
+
+6. Run `php artisan storage:link`.
+7. Set up the queue worker (supervised) and the scheduler cron entry
+   described above.
+8. Serve the application via Nginx/Apache with the document root pointing to
+   the `public/` directory.
+
+---
+
+## Troubleshooting
+
+- **`No application encryption key has been specified.`**
+  Run `php artisan key:generate`.
+
+- **Database connection errors.**
+  Verify the `DB_*` values in `.env` and that the database exists and is
+  reachable.
+
+- **Uploaded images return 404.**
+  Ensure `php artisan storage:link` has been run and the `public/storage`
+  symlink exists.
+
+- **Changes to `.env` are not taking effect.**
+  Clear cached config with `php artisan config:clear` (and re-run
+  `config:cache` in production).
+
+- **Emails are not sending.**
+  Double-check the `MAIL_*` credentials and that the SMTP host/port are
+  reachable from the server.
+
+---
+
+_Handover documentation for the Moving Guru backend. For framework-level
+questions, refer to the [Laravel 12 documentation](https://laravel.com/docs/12.x)._

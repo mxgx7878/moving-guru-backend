@@ -26,8 +26,6 @@ class StripeService
         $this->currency = config('services.stripe.currency', 'usd');
     }
 
-    // ───────────────────────── Customers ─────────────────────────
-
     public function getOrCreateCustomer(User $user): string
     {
         if ($user->stripe_customer_id) {
@@ -35,7 +33,6 @@ class StripeService
                 $this->stripe->customers->retrieve($user->stripe_customer_id);
                 return $user->stripe_customer_id;
             } catch (\Throwable $e) {
-                // fall through and create a new one
             }
         }
 
@@ -48,8 +45,6 @@ class StripeService
         $user->forceFill(['stripe_customer_id' => $customer->id])->save();
         return $customer->id;
     }
-
-    // ───────────────────────── SetupIntent (collect card) ────────
 
     public function createSetupIntent(User $user): array
     {
@@ -78,7 +73,6 @@ class StripeService
             $paymentMethodId
         );
 
-        // Prevent using another customer's card.
         if (
             $paymentMethod->customer
             && $paymentMethod->customer !== $customerId
@@ -88,7 +82,6 @@ class StripeService
             );
         }
 
-        // Attach a newly created PaymentMethod to the customer.
         if (!$paymentMethod->customer) {
             $this->stripe->paymentMethods->attach(
                 $paymentMethodId,
@@ -98,7 +91,6 @@ class StripeService
             );
         }
 
-        // Update Customer default payment method.
         $this->stripe->customers->update(
             $customerId,
             [
@@ -108,7 +100,6 @@ class StripeService
             ],
         );
 
-        // Update active Subscription default payment method.
         $activeSubscription = $user->activeSubscription;
 
         if ($activeSubscription?->stripeSubscriptionId) {
@@ -120,20 +111,15 @@ class StripeService
             );
         }
 
-        // Keep the local database synchronized.
         $user->forceFill([
             'default_payment_method_id' => $paymentMethodId,
         ])->save();
     }
 
-    // ───────────────────────── Subscriptions ─────────────────────
-
     public function subscribeOrSwap(User $user, Plan $plan, array $discounts): Subscription
     {
         $customerId = $this->getOrCreateCustomer($user);
 
-        // Reuse an unfinished checkout instead of creating duplicate Stripe
-        // subscriptions when the user refreshes or clicks subscribe twice.
         $pending = $user->subscriptions()
             ->where('status', 'incomplete')
             ->latest()
@@ -182,7 +168,6 @@ class StripeService
                     );
                 }
 
-            // A different selection replaces the abandoned incomplete attempt.
             if ($pendingStripeSub?->status === 'incomplete') {
                 $this->stripe->subscriptions->cancel($pendingStripeSub->id);
                 $pending->forceFill(['status' => 'cancelled', 'cancelledAt' => now()])->save();
@@ -191,11 +176,9 @@ class StripeService
 
         $existing   = $user->activeSubscription;
 
-
         if ($existing && $existing->stripeSubscriptionId) {
             return $this->swapPlan($existing, $plan, $discounts);
         }
-
 
         $params = [
             'customer'         => $customerId,
@@ -211,14 +194,11 @@ class StripeService
         ];
 
         if (!empty($discounts)) {
-            $params['discounts'] = $discounts;   // ← FIRST invoice discounted
+            $params['discounts'] = $discounts;
         }
-
 
         $trialDays = (int) ($plan->trialPeriodDays ?? 0);
         $isTrial   = $trialDays > 0 && $user->isEligibleForTrial();
-
-
 
         if ($isTrial) {
             $params['trial_period_days'] = $trialDays;
@@ -230,9 +210,6 @@ class StripeService
         $stripeSub = $this->stripe->subscriptions->create($params);
         $local     = $this->upsertLocalSubscription($user, $plan, $stripeSub);
 
-        // Free and trial subscriptions become active/trialing immediately.
-        // An immediately-paid plan may remain incomplete until Stripe.js
-        // confirms 3DS/SCA using this client secret on the checkout page.
         if ($stripeSub->status === 'incomplete') {
             $local = $this->withPaymentConfirmationData($local, $stripeSub);
         } elseif (!in_array($stripeSub->status, ['active', 'trialing'], true)) {
@@ -241,8 +218,6 @@ class StripeService
             $local->setAttribute('requiresPaymentConfirmation', false);
             $local->setAttribute('paymentClientSecret', null);
         }
-
-
 
         if ($isTrial && $stripeSub->status === 'trialing') {
             try {
@@ -283,7 +258,7 @@ class StripeService
         $currentPlan = $local->plan;
         $isUpgrade   = $currentPlan
             ? ((float) $newPlan->price > (float) $currentPlan->price)
-            : true; // koi current plan nahi mila to safe-side upgrade treat karo
+            : true;
 
         $params = [
             'cancel_at_period_end' => false,
@@ -295,10 +270,8 @@ class StripeService
         ];
 
         if ($isUpgrade) {
-            // Immediate: abhi swap + abhi proration charge
             $params['proration_behavior'] = 'always_invoice';
         } else {
-            // Downgrade: abhi kuch charge nahi, naya price agle cycle se effective
             $params['proration_behavior']  = 'none';
             $params['billing_cycle_anchor'] = 'unchanged';
         }
@@ -309,7 +282,6 @@ class StripeService
 
         $updated = $this->stripe->subscriptions->update($local->stripeSubscriptionId, $params);
 
-        // Upgrade pe payment fail ho sakta hai — verify karo
         if ($isUpgrade) {
             $updated = $this->stripe->subscriptions->retrieve($updated->id, [
                 'expand' => ['latest_invoice.payment_intent'],
@@ -373,8 +345,6 @@ class StripeService
         $local->forceFill(['cancelAtPeriodEnd' => false, 'cancelledAt' => null])->save();
         return $local;
     }
-
-    // ───────────────────────── Local sync helpers ──
 
     public function upsertLocalSubscription(User $user, ?Plan $plan, StripeSubscription $sub): Subscription
     {
@@ -589,10 +559,8 @@ class StripeService
         return $plan->refresh();
     }
 
-
      public function syncPlanCoupon(Plan $plan): void
     {
-        // No discount → drop any existing coupon.
         if (!$plan->hasDiscount) {
             if ($plan->stripeCouponId) {
                 try { $this->stripe->coupons->delete($plan->stripeCouponId); }
@@ -628,7 +596,7 @@ class StripeService
             $plan->forceFill(['stripeCouponId' => $coupon->id])->save();
         } catch (\Throwable $e) {
             report($e);
-            return; // keep old coupon if create failed
+            return;
         }
 
         if ($old) {
@@ -652,13 +620,12 @@ class StripeService
                     'discounts' => [['coupon' => $plan->stripeCouponId]],
                 ]);
             } else {
-                // Empty string clears all discounts on the subscription.
                 $this->stripe->subscriptions->update($sub->stripeSubscriptionId, [
                     'discounts' => '',
                 ]);
             }
         } catch (\Throwable $e) {
-            report($e); // e.g. deleteDiscount when none exists — harmless
+            report($e);
         }
     }
 
@@ -674,7 +641,6 @@ class StripeService
             ->get()
             ->each(fn (Subscription $s) => $this->syncSubscriptionDiscount($s, $plan));
     }
-
 
     public function syncAllPlansFromStripe(): array
     {
@@ -808,7 +774,6 @@ class StripeService
 
     public function archivePromoCodeInStripe(\App\Models\PromoCode $pc): void
     {
-        // Promo codes can't be deleted — deactivate. The coupon can be deleted.
         if ($pc->stripePromotionCodeId) {
             try {
                 $this->stripe->promotionCodes->update($pc->stripePromotionCodeId, ['active' => false]);
@@ -826,13 +791,11 @@ class StripeService
 
         $discounts = [];
 
-        // Keep the plan's own discount...
         $plan = $sub->plan;
         if ($plan && $plan->hasDiscount && $plan->stripeCouponId) {
             $discounts[] = ['coupon' => $plan->stripeCouponId];
         }
 
-        // ...then stack the promo on top.
         $discounts[] = ['promotion_code' => $pc->stripePromotionCodeId];
 
         $this->stripe->subscriptions->update($sub->stripeSubscriptionId, [
@@ -848,7 +811,7 @@ class StripeService
             return null;
         }
 
-        $amount = (float) $plan->price;   // start from list price (60.00)
+        $amount = (float) $plan->price;
 
         if (!$local->stripeSubscriptionId) {
             \Log::info('[CHARGE-DEBUG] no stripe sub id, returning plan price', ['amount' => $amount]);
@@ -860,16 +823,13 @@ class StripeService
                 'expand' => ['discounts'],
             ]);
 
-
  foreach (($sub->discounts ?? []) as $discount) {
-                // New Stripe API: coupon id sits at discount.source.coupon (a string).
                 $couponId = $discount->source->coupon
-                    ?? $discount->coupon            // older shape fallback
+                    ?? $discount->coupon
                     ?? null;
 
                 if (!$couponId) continue;
 
-                // Retrieve the coupon to read its percent_off / amount_off.
                 try {
                     $coupon = is_string($couponId)
                         ? $this->stripe->coupons->retrieve($couponId)
@@ -912,8 +872,6 @@ class StripeService
                 ? ($stripeDefault->id ?? $user->default_payment_method_id)
                 : $user->default_payment_method_id);
 
-        // Keep the local shortcut synchronized if the default was changed
-        // directly from Stripe Dashboard.
         if ($defaultPaymentMethodId !== $user->default_payment_method_id) {
             $user->forceFill([
                 'default_payment_method_id' => $defaultPaymentMethodId,
@@ -946,10 +904,6 @@ class StripeService
     Subscription $localSubscription,
     string $paymentMethodId,
     ): array {
-        // This updates:
-        // 1. Customer default
-        // 2. Subscription default
-        // 3. Local user default_payment_method_id
         $this->setDefaultPaymentMethod(
             $user,
             $paymentMethodId,

@@ -66,9 +66,6 @@ class AutoDeactivateStaleUsers extends Command
             try {
                 $user->detail->update(['profileStatus' => 'inactive']);
 
-                // Queue the email — when SMTP is wired, deliveries flow.
-                // Until then they sit in the queue without breaking the
-                // command (assuming queue connection = sync or database).
                 $user->notify(new AutoDeactivatedNotification());
 
                 $flipped++;

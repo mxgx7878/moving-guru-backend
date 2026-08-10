@@ -24,11 +24,9 @@ return new class extends Migration {
 
             $table->string('title');
 
-            // hire = Direct Hire | swap = Instructor Swap | energy_exchange = Energy Exchange
             $table->enum('type', ['hire', 'swap', 'energy_exchange'])
                   ->default('hire');
 
-            // Permanent / Temporary / Substitute / Weekend cover / Casual
             $table->enum('role_type', [
                 'permanent', 'temporary', 'substitute', 'weekend_cover', 'casual',
             ])->default('permanent');
@@ -41,8 +39,6 @@ return new class extends Migration {
             $table->string('compensation')->nullable();
             $table->text('requirements')->nullable();
 
-            // Matches the QUALIFICATION_LEVELS list shared across frontend
-            // (Studio Profile + JobListings form). Keep the two in sync.
             $table->enum('qualification_level', [
                 'none', 'intermediate', 'diploma', 'bachelors', 'masters',
                 'doctorate', 'cert_200hr', 'cert_500hr',
@@ -53,7 +49,6 @@ return new class extends Migration {
 
             $table->timestamps();
 
-            // Useful indexes for the public browse endpoint
             $table->index(['is_active', 'type']);
             $table->index('location');
         });

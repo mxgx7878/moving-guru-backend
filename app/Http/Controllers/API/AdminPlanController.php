@@ -24,7 +24,7 @@ class AdminPlanController extends Controller
                 $p->subscribersCount = Subscription::where('planId', $p->id)
                     ->whereIn('status', ['active', 'trialing', 'past_due'])
                     ->count();
-                $p->featureKeys = $p->featureKeys; // accessor
+                $p->featureKeys = $p->featureKeys;
                 return $p;
             });
 
@@ -46,11 +46,9 @@ class AdminPlanController extends Controller
             $this->stripe->createPlanInStripe($plan);
             $this->stripe->syncPlanCoupon($plan); 
 
-            // Optionally enable specific features at create time
             if ($request->has('featureIds')) {
                 $plan->planFeatures()->sync($request->input('featureIds', []));
             } else {
-                // Default: enable all features for new plans
                 $plan->planFeatures()->sync(Feature::pluck('id'));
             }
 
@@ -74,8 +72,8 @@ class AdminPlanController extends Controller
         try {
             $plan->update($data);
             $this->stripe->syncPlanToStripe($plan);
-            $this->stripe->syncPlanCoupon($plan);                       // ← add
-            $this->stripe->applyPlanDiscountToActiveSubscribers($plan); // ← add (existing subscribers ko bhi discount lagega/hatega)
+            $this->stripe->syncPlanCoupon($plan);
+            $this->stripe->applyPlanDiscountToActiveSubscribers($plan);
             return ApiResponse::success('Plan updated', ['plan' => $plan->fresh()]);
         } catch (\Throwable $e) {
             report($e);
@@ -110,10 +108,6 @@ class AdminPlanController extends Controller
         $plan->delete();
         return ApiResponse::success('Plan deleted', ['id' => $id, 'softDelete' => false]);
     }
-
-    // ──────────────────────────────────────────────────────────────────
-    //  Feature management — works with feature IDs (via sync)
-    // ──────────────────────────────────────────────────────────────────
 
     /** GET /api/admin/plans/{id}/features — enabled feature IDs + keys */
     public function showFeatures(string $id)
@@ -172,10 +166,6 @@ class AdminPlanController extends Controller
         }
     }
 
-    // ──────────────────────────────────────────────────────────────────
-    //  Shared validation
-    // ──────────────────────────────────────────────────────────────────
-
     protected function validatePayload(Request $request, bool $isCreate): array|\Illuminate\Http\JsonResponse
     {
         $req = $isCreate ? 'required' : 'sometimes';
@@ -208,7 +198,6 @@ class AdminPlanController extends Controller
             'trialPeriodDays.max'  => 'Trial period cannot exceed 365 days.',
         ]);
 
-        // Cross-field discount checks.
         $validator->after(function ($v) use ($request) {
             $type  = $request->input('discountType');
             $value = (float) $request->input('discountValue', 0);
@@ -227,14 +216,13 @@ class AdminPlanController extends Controller
 
         $data = $validator->validated();
 
-        // No value (or 0) → no discount at all. Clears type too.
         if (!isset($data['discountValue']) || (float) $data['discountValue'] <= 0) {
             $data['discountType']  = null;
             $data['discountValue'] = null;
             $data['discountDuration'] = null;
             $data['discountMonths']   = null;
         } elseif (($data['discountDuration'] ?? null) !== 'repeating') {
-            $data['discountMonths'] = null;   // months sirf repeating ke liye
+            $data['discountMonths'] = null;
         }
 
         if (empty($data['period']) && (isset($data['interval']) || isset($data['intervalCount']))) {

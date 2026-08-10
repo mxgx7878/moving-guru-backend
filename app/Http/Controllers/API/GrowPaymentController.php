@@ -36,7 +36,6 @@ class GrowPaymentController extends Controller
             'pricingTierId' => ['required_if:purpose,listing', 'nullable', 'integer', 'exists:grow_post_tiers,id'],
             'postId' => ['required_if:purpose,boost', 'nullable', 'integer'],
             'paymentMethodId' => ['required', 'string', 'starts_with:pm_'],
-            // Promo codes apply to LISTING fees only (boosts stay full price).
             'promoCode' => ['nullable', 'string', 'max:64'],
         ]);
 
@@ -65,7 +64,6 @@ class GrowPaymentController extends Controller
             : self::BOOST;
         $currency = strtolower($tier?->currency ?? config('services.stripe.currency', 'aud'));
 
-        // ── Promo code (listing only) ──────────────────────────
         $originalCents = $config['amount'];
         $chargeCents   = $originalCents;
         $discountCents = 0;
@@ -98,7 +96,6 @@ class GrowPaymentController extends Controller
             'customer' => $customerId,
             'payment_method' => $validated['paymentMethodId'],
             'payment_method_types' => ['card'],
-            // Listing fees and boosts are both charged immediately.
             'capture_method' => 'automatic',
             'setup_future_usage' => 'off_session',
             'description' => $purpose === 'listing'
@@ -201,7 +198,6 @@ class GrowPaymentController extends Controller
 
         $tier = GrowPostTier::active()->findOrFail($validated['pricingTierId']);
 
-        // ── Promo code ─────────────────────────────────────────
         $originalCents = (int) round(((float) $tier->price) * 100);
         $chargeCents   = $originalCents;
         $discountCents = 0;
@@ -263,7 +259,6 @@ class GrowPaymentController extends Controller
             'paymentIntentId' => $intent->id,
             'clientSecret' => $intent->client_secret,
             'submissionToken' => $token,
-            // A Stripe publishable key is safe to expose to browser clients.
             'publishableKey' => config('services.stripe.key'),
         ]]);
     }

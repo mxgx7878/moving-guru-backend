@@ -27,9 +27,6 @@ use Illuminate\Support\Facades\Log;
  */
 class InstructorController extends Controller
 {
-    // ═══════════════════════════════════════════════════════════
-    //  BROWSE
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * GET /api/instructors
@@ -57,8 +54,6 @@ public function index(Request $request)
         $q->where('users.status', 'active');
         })
         ->with('detail')
-        // Self-exclusion: an instructor should not see themselves in their
-        // own swap-search results. No-op for studios / admins / anonymous.
         ->when($authUser, fn ($q) => $q->where('users.id', '!=', $authUser->id))
         ->when(isset($request->isDeleted), function ($q) {
             $q->where(function ($sub) {
@@ -66,7 +61,6 @@ public function index(Request $request)
             });
         });
 
-    // Join user_details for filtering on detail columns
     $query->whereHas('detail', function ($q) use ($request, $activeOnly) {
         if ($activeOnly) {
             $q->where('profileStatus', 'active');
@@ -98,7 +92,6 @@ public function index(Request $request)
             }
         }
 
-        // Legacy single-location filter
         if ($location = trim((string) $request->get('location', ''))) {
             $q->where(function ($sub) use ($location) {
                 $sub->where('location',    'like', "%{$location}%")
@@ -112,15 +105,12 @@ public function index(Request $request)
         }
     });
 
-    // Outer name search — kept separate from detail filters so the
-    // name-OR-bio search works even when name lives on the users table.
     if ($search = trim((string) $request->get('search', ''))) {
         $query->where(function ($q) use ($search) {
             $q->where('name', 'like', "%{$search}%");
         });
     }
 
-    // Sort
     switch ($request->get('sort', 'recent')) {
         case 'name_asc':  $query->orderBy('users.name',       'asc');  break;
         case 'name_desc': $query->orderBy('users.name',       'desc'); break;
@@ -129,7 +119,6 @@ public function index(Request $request)
         default:          $query->orderBy('users.created_at', 'desc'); break;
     }
 
-    // Saved-by-this-studio lookup — only meaningful when the caller is a studio.
     $savedIds = [];
     if ($authUser && $authUser->role === 'studio') {
         $savedIds = SavedInstructor::where('studio_id', $authUser->id)
@@ -165,7 +154,6 @@ public function index(Request $request)
      */
     public function show(Request $request, $id)
     {
-        // Allow fetching either an instructor or a studio profile
         $profileUser = User::whereIn('role', ['instructor', 'studio'])
             ->with('detail')
             ->findOrFail($id);
@@ -177,7 +165,6 @@ public function index(Request $request)
             'viewer_id'      => $viewer?->id,
         ]);
 
-        // Record profile view — skip when self-viewing.
         if ($viewer && $viewer->id !== $profileUser->id) {
             try {
                 ProfileView::create([
@@ -186,11 +173,9 @@ public function index(Request $request)
                     'viewed_at'      => now(),
                 ]);
             } catch (\Throwable $e) {
-                // Swallow — view tracking is best-effort.
             }
         }
 
-        // Attach is_saved for studio viewers only when the viewed user is an instructor
         $profileUser->is_saved = false;
         if ($viewer && $viewer->role === 'studio' && $profileUser->role === 'instructor') {
             $profileUser->is_saved = SavedInstructor::where('studio_id', $viewer->id)
@@ -202,10 +187,6 @@ public function index(Request $request)
             'user' => $profileUser,
         ]);
     }
-
-    // ═══════════════════════════════════════════════════════════
-    //  FAVOURITES (studio-only — gated in routes/api.php)
-    // ═══════════════════════════════════════════════════════════
 
     /**
      * GET /api/instructors/saved
@@ -226,7 +207,6 @@ public function index(Request $request)
             ->select('users.*', 'si.created_at as saved_at')
             ->get();
 
-        // Every returned profile is, by definition, saved by this studio.
         $saved->transform(function ($inst) {
             $inst->is_saved = true;
             return $inst;
@@ -254,8 +234,6 @@ public function index(Request $request)
         $studioId = Auth::id();
         $instructorId = (int) $request->input('instructor_id');
 
-        // Verify the target is an instructor — prevents studios saving
-        // other studios (or admins) via the same endpoint.
         $isInstructor = User::where('id', $instructorId)
             ->where('role', 'instructor')
             ->exists();
@@ -265,11 +243,9 @@ public function index(Request $request)
         }
 
         if ($studioId === $instructorId) {
-            // Edge case: a user who is somehow both roles can't save themselves.
             return ApiResponse::error('You cannot save yourself.', [], 422);
         }
 
-        // Idempotent: firstOrCreate instead of create to swallow duplicate posts.
         SavedInstructor::firstOrCreate([
             'studio_id'     => $studioId,
             'instructor_id' => $instructorId,

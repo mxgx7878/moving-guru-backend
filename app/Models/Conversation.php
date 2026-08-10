@@ -16,8 +16,6 @@ class Conversation extends Model
         'lastMessageAt' => 'datetime',
     ];
 
-    /* ─── Relations ─────────────────────────────────────────────── */
-
     public function userOne()
     {
         return $this->belongsTo(User::class, 'userOneId')
@@ -42,12 +40,6 @@ class Conversation extends Model
         return $this->hasOne(Message::class, 'conversationId')->latestOfMany();
     }
 
-    /* ─── Pair normalisation ────────────────────────────────────────
-     | userOneId always stores the smaller user id so the unique index
-     | (userOneId, userTwoId) matches the pair regardless of who
-     | started the conversation.
-     */
-
     public function scopeBetween($query, int $a, int $b)
     {
         return $query
@@ -62,8 +54,6 @@ class Conversation extends Model
             'userTwoId' => max($a, $b),
         ]);
     }
-
-    /* ─── Participant helpers ───────────────────────────────────── */
 
     public function hasParticipant(int $userId): bool
     {
